@@ -1,0 +1,2 @@
+- [x] Increase setTimeout delays in content-script.js to 1000ms for updateButtons calls
+- [x] Add console logging in getDictateState and updateButtons functions for debugging

@@ -31,6 +31,19 @@
   function trySend() { return clickElement(findFirst(DEFAULTS.sendButtonSelectors)); }
   function tryAudio() { return clickElement(findFirst(DEFAULTS.audioButtonSelectors)); }
 
+  function getDictateState() {
+    const btn = findFirst(DEFAULTS.audioButtonSelectors);
+    if (!btn) {
+      console.log('getDictateState: No dictate button found');
+      return 'inactive';
+    }
+    const label = btn.getAttribute('aria-label') || '';
+    console.log('getDictateState: Button found, aria-label:', label);
+    const state = label.includes('Stop dictation') ? 'active' : 'inactive';
+    console.log('getDictateState: Determined state:', state);
+    return state;
+  }
+
 
 
   function getInputText(el) { if (!el) return ''; if(el.tagName==='TEXTAREA'||el.tagName==='INPUT') return el.value||''; return el.innerText||el.textContent||''; }
@@ -93,6 +106,8 @@
     }
   });
 
+  let dictateObserver = null;
+
   // Inject control buttons into the page
   function injectButtons() {
     if (document.getElementById('auto-dictate-controls')) return; // Already injected
@@ -114,7 +129,7 @@
     startBtn.addEventListener('click', () => {
       continuousMode = true;
       tryAudio(); // Immediately start dictation
-      updateButtons();
+      setTimeout(updateButtons, 1000); // Sync after click
       console.log('Dictate mode started');
     });
 
@@ -135,37 +150,57 @@
           setTimeout(() => {
             continuousMode = false;
             tryAudio(); // Stop dictation
-            updateButtons();
+            setTimeout(updateButtons, 1000); // Sync after click
             console.log('Dictate mode stopped after sending');
           }, 3000); // Increased timeout to ensure send completes
         } else {
           console.log('Send failed, stopping immediately');
           continuousMode = false;
           tryAudio(); // Stop dictation
-          updateButtons();
+          setTimeout(updateButtons, 1000); // Sync after click
           console.log('Dictate mode stopped (send failed)');
         }
       } else {
         console.log('No input to send, stopping immediately');
         continuousMode = false;
         tryAudio(); // Stop dictation
-        updateButtons();
+        setTimeout(updateButtons, 1000); // Sync after click
         console.log('Dictate mode stopped');
       }
     });
 
     function updateButtons() {
-      startBtn.style.display = continuousMode ? 'none' : 'inline-block';
-      stopBtn.style.display = continuousMode ? 'inline-block' : 'none';
+      const state = getDictateState();
+      console.log('updateButtons: Current state:', state);
+      startBtn.style.display = state === 'active' ? 'none' : 'inline-block';
+      stopBtn.style.display = state === 'active' ? 'inline-block' : 'none';
+      console.log('updateButtons: Start button display:', startBtn.style.display, 'Stop button display:', stopBtn.style.display);
+    }
+
+    function setupDictateObserver() {
+      // Disconnect any existing observer
+      if (dictateObserver) {
+        dictateObserver.disconnect();
+        dictateObserver = null;
+      }
+      const dictateBtn = findFirst(DEFAULTS.audioButtonSelectors);
+      if (dictateBtn) {
+        dictateObserver = new MutationObserver(() => {
+          updateButtons();
+        });
+        dictateObserver.observe(dictateBtn, { attributes: true, attributeFilter: ['aria-label'] });
+        console.log('Dictate button observer set up');
+      }
     }
 
     controlsDiv.appendChild(startBtn);
     controlsDiv.appendChild(stopBtn);
     document.body.appendChild(controlsDiv);
     updateButtons();
+    setupDictateObserver();
   }
 
-  const appObserver=new MutationObserver(()=>{ attachObservers(); });
+  const appObserver=new MutationObserver(()=>{ attachObservers(); setupDictateObserver(); });
   appObserver.observe(document.body,{childList:true,subtree:true});
   attachObservers();
   console.log('ChatGPT Auto-Dictate content script running');
