@@ -19,8 +19,13 @@
   let continuousMode = false;
 
   async function isEnabled() {
-    const data = await chrome.storage.local.get({ enabled: true });
-    return data.enabled !== false;
+    try {
+      const data = await chrome.storage.local.get({ enabled: true });
+      return data.enabled !== false;
+    } catch (e) {
+      console.warn('Extension context invalidated, assuming disabled:', e);
+      return false;
+    }
   }
 
   function clickElement(el) {
@@ -108,6 +113,33 @@
 
   let dictateObserver = null;
 
+  function updateButtons() {
+    const startBtn = document.getElementById('auto-dictate-start');
+    const stopBtn = document.getElementById('auto-dictate-stop');
+    if (!startBtn || !stopBtn) return;
+    const state = getDictateState();
+    console.log('updateButtons: Current state:', state);
+    startBtn.style.display = state === 'active' ? 'none' : 'inline-block';
+    stopBtn.style.display = state === 'active' ? 'inline-block' : 'none';
+    console.log('updateButtons: Start button display:', startBtn.style.display, 'Stop button display:', stopBtn.style.display);
+  }
+
+  function setupDictateObserver() {
+    // Disconnect any existing observer
+    if (dictateObserver) {
+      dictateObserver.disconnect();
+      dictateObserver = null;
+    }
+    const dictateBtn = findFirst(DEFAULTS.audioButtonSelectors);
+    if (dictateBtn) {
+      dictateObserver = new MutationObserver(() => {
+        updateButtons();
+      });
+      dictateObserver.observe(dictateBtn, { attributes: true, attributeFilter: ['aria-label'] });
+      console.log('Dictate button observer set up');
+    }
+  }
+
   // Inject control buttons into the page
   function injectButtons() {
     if (document.getElementById('auto-dictate-controls')) return; // Already injected
@@ -124,6 +156,7 @@
     `;
 
     const startBtn = document.createElement('button');
+    startBtn.id = 'auto-dictate-start';
     startBtn.textContent = 'Start Dictate';
     startBtn.style.cssText = 'padding: 8px; background-color: blue; color: white; border: none; border-radius: 4px; cursor: pointer;';
     startBtn.addEventListener('click', () => {
@@ -134,6 +167,7 @@
     });
 
     const stopBtn = document.createElement('button');
+    stopBtn.id = 'auto-dictate-stop';
     stopBtn.textContent = 'Stop Dictate';
     stopBtn.style.cssText = 'padding: 8px; background-color: red; color: white; border: none; border-radius: 4px; cursor: pointer;';
     stopBtn.addEventListener('click', () => {
@@ -169,30 +203,6 @@
       }
     });
 
-    function updateButtons() {
-      const state = getDictateState();
-      console.log('updateButtons: Current state:', state);
-      startBtn.style.display = state === 'active' ? 'none' : 'inline-block';
-      stopBtn.style.display = state === 'active' ? 'inline-block' : 'none';
-      console.log('updateButtons: Start button display:', startBtn.style.display, 'Stop button display:', stopBtn.style.display);
-    }
-
-    function setupDictateObserver() {
-      // Disconnect any existing observer
-      if (dictateObserver) {
-        dictateObserver.disconnect();
-        dictateObserver = null;
-      }
-      const dictateBtn = findFirst(DEFAULTS.audioButtonSelectors);
-      if (dictateBtn) {
-        dictateObserver = new MutationObserver(() => {
-          updateButtons();
-        });
-        dictateObserver.observe(dictateBtn, { attributes: true, attributeFilter: ['aria-label'] });
-        console.log('Dictate button observer set up');
-      }
-    }
-
     controlsDiv.appendChild(startBtn);
     controlsDiv.appendChild(stopBtn);
     document.body.appendChild(controlsDiv);
@@ -200,7 +210,7 @@
     setupDictateObserver();
   }
 
-  const appObserver=new MutationObserver(()=>{ attachObservers(); setupDictateObserver(); });
+  const appObserver = new MutationObserver(() => { attachObservers(); setupDictateObserver(); });
   appObserver.observe(document.body,{childList:true,subtree:true});
   attachObservers();
   console.log('ChatGPT Auto-Dictate content script running');
