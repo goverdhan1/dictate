@@ -1,2 +1,6 @@
 - [x] Increase setTimeout delays in content-script.js to 1000ms for updateButtons calls
 - [x] Add console logging in getDictateState and updateButtons functions for debugging
+- [ ] Update content-script.js to improve dynamic input element detection (add polling if element is null)
+- [ ] Adjust continuous mode restart logic for better reliability
+- [ ] Reduce console logging verbosity in attachObservers and other functions
+- [ ] Test changes on ChatGPT page and verify reduced null attachments and smoother continuous mode
