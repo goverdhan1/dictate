@@ -1,9 +1,16 @@
 # ChatGPT Auto-Dictate & Auto-Send (Chrome Extension)
 
-Automatically clicks **Send** after speech-to-text/dictation populates the input on chatgpt.com, and optionally clicks the audio/play button so ChatGPT speaks the response.
+Automatically clicks **Send** after speech-to-text/dictation populates the input on chatgpt.com, and restarts dictation for a continuous conversational flow.
 
 ## Features
 
 - **Auto-Send**: Automatically sends messages after dictation ends with punctuation or significant input growth.
-- **Continuous Dictate Mode**: Start/stop buttons injected directly into the ChatGPT page to enable repeated dictation cycles until stopped, allowing for uninterrupted conversational flow.
+- **Continuous Dictate Mode**: Start / Submit / Stop buttons injected into the ChatGPT page. Submit sends the current dictation without stopping the mic cycle.
 - **Popup Controls**: Enable/disable auto-send and open ChatGPT settings.
+
+## Reload after update
+
+1. Open `chrome://extensions`
+2. Click **Reload** on ChatGPT Auto-Dictate
+3. Refresh the ChatGPT tab
+4. Click **Start Dictate** (top-right). Status should show **Listening…** when the mic is active.

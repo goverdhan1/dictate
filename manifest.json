@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "ChatGPT Auto-Dictate & Auto-Send",
   "description": "Automatically clicks Send after dictation and re-enables audio (dictate/play) for ChatGPT conversational flow.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "permissions": ["storage", "scripting", "activeTab"],
-  "host_permissions": ["https://chatgpt.com/*"],
+  "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -19,7 +19,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*"],
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": ["content-script.js"],
       "run_at": "document_idle"
     }
