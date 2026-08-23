@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teams Bridge Test Harness</title>
+  <style>
+    body { font-family: Segoe UI, sans-serif; padding: 20px; max-width: 720px; }
+    .log { background: #111; color: #0f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; min-height: 120px; }
+    button { margin: 6px 6px 6px 0; padding: 8px 12px; cursor: pointer; }
+    .mock-caption { border: 1px solid #ccc; padding: 10px; margin-top: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>Teams→ChatGPT Bridge — Local Harness</h2>
+  <p>Simulates Teams live captions and tests auto-forward rules without a real meeting.</p>
+
+  <button id="add-question">Add caption (question)</button>
+  <button id="add-sentence">Add caption (sentence)</button>
+  <button id="run-scan">Run caption scan</button>
+  <button id="clear">Clear log</button>
+
+  <div class="mock-caption" id="caption-area">
+    <div data-tid="closed-caption-v2-virtual-list-content">
+      <div class="fui-ChatMessageCompact">
+        <span data-tid="author">Test Speaker</span>
+        <span data-tid="closed-caption-text">What should we prioritize first?</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>Log</h3>
+  <div class="log" id="log"></div>
+
+  <script>
+    const CAPTION_SELECTORS = { text: "[data-tid='closed-caption-text']", author: "[data-tid='author']" };
+    const seenCaptions = new Set();
+    const settings = { autoForwardMode: 'sentences', forwardPrefix: 'Answer this meeting question: ' };
+    const logEl = document.getElementById('log');
+    const list = document.querySelector("[data-tid='closed-caption-v2-virtual-list-content']");
+
+    function log(msg) {
+      logEl.textContent += msg + '\n';
+    }
+
+    function shouldAutoForward(text, settings) {
+      const trimmed = text.trim();
+      if (!trimmed || settings.autoForwardMode === 'off') return false;
+      if (settings.autoForwardMode === 'questions') return /\?\s*$/.test(trimmed);
+      if (settings.autoForwardMode === 'sentences') return /[.!?]\s*$/.test(trimmed) && trimmed.length >= 8;
+      return false;
+    }
+
+    function formatMessage(author, text) {
+      return author ? `${author}: ${text}` : text;
+    }
+
+    function scanCaptions() {
+      const nodes = document.querySelectorAll(CAPTION_SELECTORS.text);
+      for (const node of nodes) {
+        const text = (node.textContent || '').trim();
+        if (!text) continue;
+        const row = node.closest('.fui-ChatMessageCompact');
+        const author = (row?.querySelector(CAPTION_SELECTORS.author)?.textContent || '').trim();
+        const key = `${author}::${text}`;
+        if (seenCaptions.has(key)) continue;
+        seenCaptions.add(key);
+        log(`Captured: ${author} — "${text}"`);
+        if (shouldAutoForward(text, settings)) {
+          const payload = settings.forwardPrefix + formatMessage(author, text);
+          log(`→ WOULD FORWARD TO CHATGPT: ${payload}`);
+        } else {
+          log(`→ skipped (auto-forward mode: ${settings.autoForwardMode})`);
+        }
+      }
+    }
+
+    document.getElementById('run-scan').addEventListener('click', scanCaptions);
+    document.getElementById('clear').addEventListener('click', () => { logEl.textContent = ''; });
+    document.getElementById('add-question').addEventListener('click', () => {
+      const div = document.createElement('div');
+      div.className = 'fui-ChatMessageCompact';
+      div.innerHTML = '<span data-tid="author">Colleague</span><span data-tid="closed-caption-text">Can we move the deadline?</span>';
+      list.appendChild(div);
+      scanCaptions();
+    });
+    document.getElementById('add-sentence').addEventListener('click', () => {
+      const div = document.createElement('div');
+      div.className = 'fui-ChatMessageCompact';
+      div.innerHTML = '<span data-tid="author">Manager</span><span data-tid="closed-caption-text">The release is scheduled for next month.</span>';
+      list.appendChild(div);
+      scanCaptions();
+    });
+
+    log('Harness ready. Click "Run caption scan" or add captions.');
+    scanCaptions();
+  </script>
+</body>
+</html>

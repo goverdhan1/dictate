@@ -1,17 +1,68 @@
 const checkbox = document.getElementById('enabled');
-const openBtn = document.getElementById('open-settings');
+const bridgeCheckbox = document.getElementById('bridgeEnabled');
+const autoEnableCaptionsCheckbox = document.getElementById('autoEnableCaptions');
+const autoForwardMode = document.getElementById('autoForwardMode');
+const forwardPrefix = document.getElementById('forwardPrefix');
+const openChatGptBtn = document.getElementById('open-chatgpt');
+const openTeamsBtn = document.getElementById('open-teams');
+const reloadBtn = document.getElementById('reload-extension');
 
-async function getEnabled() {
-  const data = await chrome.storage.local.get({ enabled: true });
+async function loadSettings() {
+  const data = await chrome.storage.local.get({
+    enabled: true,
+    bridgeEnabled: true,
+    autoEnableCaptions: true,
+    autoForwardMode: 'questions',
+    autoForwardQuestions: true,
+    forwardPrefix: 'Answer this meeting question: '
+  });
+
   checkbox.checked = data.enabled;
+  bridgeCheckbox.checked = data.bridgeEnabled;
+  autoEnableCaptionsCheckbox.checked = data.autoEnableCaptions !== false;
+  forwardPrefix.value = data.forwardPrefix || '';
+
+  if (data.autoForwardMode) {
+    autoForwardMode.value = data.autoForwardMode;
+  } else {
+    autoForwardMode.value = data.autoForwardQuestions === false ? 'off' : 'questions';
+  }
 }
 
 checkbox.addEventListener('change', () => {
   chrome.storage.local.set({ enabled: checkbox.checked });
 });
 
-openBtn.addEventListener('click', () => {
+bridgeCheckbox.addEventListener('change', () => {
+  chrome.storage.local.set({ bridgeEnabled: bridgeCheckbox.checked });
+});
+
+autoEnableCaptionsCheckbox.addEventListener('change', () => {
+  chrome.storage.local.set({ autoEnableCaptions: autoEnableCaptionsCheckbox.checked });
+});
+
+autoForwardMode.addEventListener('change', () => {
+  chrome.storage.local.set({ autoForwardMode: autoForwardMode.value });
+});
+
+forwardPrefix.addEventListener('change', () => {
+  chrome.storage.local.set({ forwardPrefix: forwardPrefix.value });
+});
+
+forwardPrefix.addEventListener('blur', () => {
+  chrome.storage.local.set({ forwardPrefix: forwardPrefix.value });
+});
+
+openChatGptBtn.addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://chatgpt.com' });
 });
 
-getEnabled();
+openTeamsBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://teams.microsoft.com' });
+});
+
+reloadBtn.addEventListener('click', () => {
+  chrome.runtime.reload();
+});
+
+loadSettings();

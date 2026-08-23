@@ -4,20 +4,48 @@
     <meta charset="utf-8" />
     <title>ChatGPT Auto-Dictate</title>
     <style>
-      body { font-family: Arial, sans-serif; width: 220px; padding: 12px; }
-      label { display:block; margin-bottom:8px; }
-      button { margin-top: 8px; width:100%; padding:8px; }
+      body { font-family: "Segoe UI", Arial, sans-serif; width: 260px; padding: 12px; margin: 0; }
+      h4 { margin: 0 0 10px; font-size: 14px; }
+      label { display: block; margin-bottom: 8px; font-size: 13px; }
+      select, input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px; font-size: 13px; }
+      button { margin-top: 6px; width: 100%; padding: 8px; cursor: pointer; border: none; border-radius: 4px; color: #fff; }
+      .chatgpt { background: #2563eb; }
+      .teams { background: #6264a7; }
+      p { font-size: 11px; color: #605e5c; margin: 8px 0 0; line-height: 1.4; }
+      hr { border: none; border-top: 1px solid #e1dfdd; margin: 10px 0; }
     </style>
   </head>
   <body>
     <h4>Auto-Dictate Control</h4>
     <label>
-      <input type="checkbox" id="enabled" /> Enable auto-send / auto-audio
+      <input type="checkbox" id="enabled" /> Enable ChatGPT auto-send
+    </label>
+    <label>
+      <input type="checkbox" id="bridgeEnabled" checked /> Enable Teams→ChatGPT bridge
+    </label>
+    <label>
+      <input type="checkbox" id="autoEnableCaptions" checked /> Auto-enable Teams live captions
+    </label>
+    <label>
+      Auto-forward to ChatGPT
+      <select id="autoForwardMode">
+        <option value="off">Manual only</option>
+        <option value="questions">Questions (?)</option>
+        <option value="sentences">Complete sentences (. ! ?)</option>
+      </select>
+    </label>
+    <label>
+      Custom prefix
+      <input type="text" id="forwardPrefix" placeholder="Answer this meeting question: " />
     </label>
 
-    <div>
-      <button id="open-settings">Open extension settings</button>
-    </div>
+    <button class="chatgpt" id="open-chatgpt">Open ChatGPT</button>
+    <button class="teams" id="open-teams">Open Microsoft Teams</button>
+    <button id="reload-extension" style="background:#6b7280;margin-top:10px;">Reload extension</button>
+
+    <hr />
+    <p><strong>Teams bridge:</strong> Join a meeting and click <strong>Start Teams→ChatGPT</strong>. Live captions are turned on automatically. Auto-forward and prefix are set below.</p>
+
     <script src="popup.js"></script>
   </body>
 </html>

@@ -239,6 +239,49 @@
     return (el.innerText || el.textContent || '').replace(/\u200b/g, '');
   }
 
+  function setInputText(el, text) {
+    if (!el || !text) return false;
+    el.focus();
+
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+      el.value = text;
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+      return true;
+    }
+
+    el.textContent = '';
+    const inserted = document.execCommand('insertText', false, text);
+    if (!inserted) {
+      el.textContent = text;
+    }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    return true;
+  }
+
+  async function receiveFromTeams(text) {
+    const inputEl = getInputEl();
+    if (!inputEl) {
+      log('ChatGPT input not found for Teams message');
+      return { success: false, error: 'ChatGPT input not found' };
+    }
+
+    const ok = setInputText(inputEl, text);
+    if (!ok) {
+      return { success: false, error: 'Could not set ChatGPT input' };
+    }
+
+    setTimeout(() => {
+      sending = true;
+      lastAction = Date.now();
+      lastValue = '';
+      trySend();
+      setTimeout(() => { sending = false; }, DEFAULTS.sendAfterSubmitMs + 200);
+    }, 350);
+
+    log('Received from Teams and queued send:', text);
+    return { success: true };
+  }
+
   function clearInput(inputEl) {
     if (!inputEl) return;
     if (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT') {
@@ -472,6 +515,9 @@
       sendResponse({ success: true });
     } else if (message.action === 'submit') {
       sendResponse({ success: submitCurrent() });
+    } else if (message.action === 'receiveFromTeams') {
+      receiveFromTeams(message.text).then(sendResponse);
+      return true;
     }
   });
 
