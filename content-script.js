@@ -1,4 +1,14 @@
 (function () {
+  // Only run in the top frame — chatgpt.com iframes would duplicate sends.
+  if (window !== window.top) return;
+
+  // Prevent double-injection (manifest + scripting.executeScript).
+  if (window.__dictateContentScriptLoaded) {
+    console.log('[Auto-Dictate] Already loaded — skipping duplicate inject');
+    return;
+  }
+  window.__dictateContentScriptLoaded = true;
+
   const DEFAULTS = {
     debounceMs: 400,
     restartMs: 800,
@@ -61,9 +71,30 @@
   let observedInput = null;
   let inputObserver = null;
   let sending = false;
+  let suppressInputWatch = false;
 
   function log(...args) {
     console.log('[Auto-Dictate]', ...args);
+  }
+
+  function extensionAlive() {
+    try {
+      return !!(chrome?.runtime?.id && chrome?.storage?.local);
+    } catch {
+      return false;
+    }
+  }
+
+  async function isEnabled() {
+    if (!extensionAlive()) return false;
+    try {
+      const data = await chrome.storage.local.get({ enabled: true });
+      return data.enabled !== false;
+    } catch (e) {
+      // Common after extension reload while the ChatGPT tab is still open.
+      console.warn('[Auto-Dictate] Storage unavailable (reload ChatGPT tab):', e?.message || e);
+      return false;
+    }
   }
 
   function isVisible(el) {
@@ -149,9 +180,15 @@
 
   function getSendBtn() {
     const root = getComposer();
-    const btn = findFirst(SEND_SELECTORS, root);
+    const selectors = [
+      ...SEND_SELECTORS,
+      'button[aria-label="Send message"]',
+      'button[aria-label*="Send message" i]',
+      'button[data-testid="composer-send-button"]',
+      'form[data-type="unified-composer"] button[type="submit"]'
+    ];
+    const btn = findFirst(selectors, root);
     if (btn) return btn;
-    // Last resort: composer submit that is not dictate/voice
     const fallback = root.querySelector('button[type="submit"]');
     if (fallback && isVisible(fallback) && !VOICE_MODE_RE.test(buttonLabel(fallback)) && !DICTATE_RE.test(buttonLabel(fallback))) {
       return fallback;
@@ -159,14 +196,12 @@
     return null;
   }
 
-  async function isEnabled() {
-    try {
-      const data = await chrome.storage.local.get({ enabled: true });
-      return data.enabled !== false;
-    } catch (e) {
-      console.warn('[Auto-Dictate] Extension context invalidated:', e);
-      return false;
-    }
+  function isSendButtonReady(btn) {
+    if (!btn || !isVisible(btn)) return false;
+    if (btn.disabled) return false;
+    if (btn.getAttribute('aria-disabled') === 'true') return false;
+    if (btn.hasAttribute('disabled')) return false;
+    return true;
   }
 
   function clickElement(el) {
@@ -179,11 +214,15 @@
       el.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, pointerType: 'mouse' }));
       el.dispatchEvent(new MouseEvent('mouseup', opts));
       el.dispatchEvent(new MouseEvent('click', opts));
-      if (typeof el.click === 'function') el.click();
       return true;
     } catch (e) {
       console.warn('[Auto-Dictate] click failed', e);
-      return false;
+      try {
+        el.click?.();
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -211,6 +250,7 @@
   }
 
   function trySend() {
+    // Used by continuous dictate mode — may involve dictation submit first.
     const submit = getDictateSubmitBtn();
     if (submit) {
       log('Submitting dictation, then sending');
@@ -233,6 +273,26 @@
     return clickElement(sendBtn);
   }
 
+  /** Teams bridge path: only click the composer Send button (never dictation controls). */
+  async function trySendComposer(maxWaitMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      const sendBtn = getSendBtn();
+      if (isSendButtonReady(sendBtn)) {
+        log('Clicking composer send:', buttonLabel(sendBtn));
+        return clickElement(sendBtn);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const sendBtn = getSendBtn();
+    if (sendBtn) {
+      log('Send button present but may be disabled; clicking anyway');
+      return clickElement(sendBtn);
+    }
+    log('Send button not found');
+    return false;
+  }
+
   function getInputText(el) {
     if (!el) return '';
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') return el.value || '';
@@ -244,42 +304,134 @@
     el.focus();
 
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-      el.value = text;
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-      return true;
+      const proto = el.tagName === 'TEXTAREA'
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (descriptor?.set) {
+        descriptor.set.call(el, text);
+      } else {
+        el.value = text;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return (el.value || '').trim().length > 0;
     }
 
-    el.textContent = '';
-    const inserted = document.execCommand('insertText', false, text);
-    if (!inserted) {
+    // ProseMirror / contenteditable — replace contents.
+    try {
+      el.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      let ok = document.execCommand('insertText', false, text);
+      if (!ok || !getInputText(el).trim()) {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        el.dispatchEvent(new ClipboardEvent('paste', {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true
+        }));
+      }
+
+      if (!getInputText(el).trim()) {
+        el.textContent = '';
+        el.appendChild(document.createTextNode(text));
+        el.dispatchEvent(new InputEvent('input', {
+          bubbles: true,
+          inputType: 'insertText',
+          data: text
+        }));
+      }
+    } catch (e) {
+      log('setInputText contenteditable failed', e);
       el.textContent = text;
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
     }
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    return true;
+
+    return getInputText(el).trim().length > 0;
   }
 
+  function waitForInput(maxMs = 5000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        const el = getInputEl();
+        if (el) {
+          resolve(el);
+          return;
+        }
+        if (Date.now() - start >= maxMs) {
+          resolve(null);
+          return;
+        }
+        setTimeout(tick, 250);
+      };
+      tick();
+    });
+  }
+
+  let lastTeamsPayload = '';
+  let lastTeamsPayloadAt = 0;
+  let receiveFromTeamsBusy = false;
+
   async function receiveFromTeams(text) {
-    const inputEl = getInputEl();
-    if (!inputEl) {
-      log('ChatGPT input not found for Teams message');
-      return { success: false, error: 'ChatGPT input not found' };
+    const trimmed = (text || '').trim();
+    if (!trimmed) return { success: false, error: 'empty' };
+
+    const now = Date.now();
+    if (trimmed === lastTeamsPayload && now - lastTeamsPayloadAt < 5000) {
+      log('Ignoring duplicate Teams payload');
+      return { success: true, duplicate: true };
+    }
+    if (receiveFromTeamsBusy) {
+      log('receiveFromTeams already busy');
+      return { success: false, error: 'busy' };
     }
 
-    const ok = setInputText(inputEl, text);
-    if (!ok) {
-      return { success: false, error: 'Could not set ChatGPT input' };
-    }
+    receiveFromTeamsBusy = true;
+    lastTeamsPayload = trimmed;
+    lastTeamsPayloadAt = now;
 
-    setTimeout(() => {
+    try {
+      const inputEl = await waitForInput(8000);
+      if (!inputEl) {
+        log('ChatGPT input not found for Teams message');
+        return { success: false, error: 'ChatGPT input not found — open a chat' };
+      }
+
+      suppressInputWatch = true;
       sending = true;
+
+      const ok = setInputText(inputEl, trimmed);
+      if (!ok) {
+        return { success: false, error: 'Could not set ChatGPT input' };
+      }
+
+      // Give React a moment, then wait until Send is enabled.
+      await new Promise((r) => setTimeout(r, 300));
       lastAction = Date.now();
       lastValue = '';
-      trySend();
-      setTimeout(() => { sending = false; }, DEFAULTS.sendAfterSubmitMs + 200);
-    }, 350);
 
-    log('Received from Teams and queued send:', text);
-    return { success: true };
+      const sent = await trySendComposer(5000);
+      if (!sent) {
+        log('Send button not found after Teams insert');
+        return { success: false, error: 'ChatGPT Send button not found/disabled' };
+      }
+
+      log('Received from Teams and sent:', trimmed);
+      return { success: true };
+    } finally {
+      setTimeout(() => {
+        sending = false;
+        suppressInputWatch = false;
+        receiveFromTeamsBusy = false;
+      }, DEFAULTS.sendAfterSubmitMs + 800);
+    }
   }
 
   function clearInput(inputEl) {
@@ -349,6 +501,8 @@
     log('Observing input', inputEl.id || inputEl.tagName);
 
     const onChange = async () => {
+      if (suppressInputWatch || sending) return;
+      if (!extensionAlive()) return;
       if (!(await isEnabled())) return;
       clearTimeout(checkTimeout);
       checkTimeout = setTimeout(() => maybeSendOnDictation(getInputText(inputEl).trim()), 120);
@@ -507,6 +661,14 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!extensionAlive()) {
+      sendResponse({ success: false, error: 'Extension context invalidated — reload this tab' });
+      return;
+    }
+    if (message.action === 'ping') {
+      sendResponse({ success: true, pong: true });
+      return;
+    }
     if (message.action === 'startContinuous') {
       startContinuous();
       sendResponse({ success: true });

@@ -14,13 +14,19 @@ async function loadSettings() {
     autoEnableCaptions: true,
     autoForwardMode: 'questions',
     autoForwardQuestions: true,
-    forwardPrefix: 'Answer this meeting question: '
+    forwardPrefix: ''
   });
 
   checkbox.checked = data.enabled;
   bridgeCheckbox.checked = data.bridgeEnabled;
   autoEnableCaptionsCheckbox.checked = data.autoEnableCaptions !== false;
-  forwardPrefix.value = data.forwardPrefix || '';
+
+  let prefix = data.forwardPrefix || '';
+  if (prefix === 'Answer this meeting question: ' || prefix === 'Answer this meeting question:') {
+    prefix = '';
+    chrome.storage.local.set({ forwardPrefix: '' });
+  }
+  forwardPrefix.value = prefix;
 
   if (data.autoForwardMode) {
     autoForwardMode.value = data.autoForwardMode;

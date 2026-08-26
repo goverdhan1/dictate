@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ChatGPT Auto-Dictate</title>
+    <title>Dictate</title>
     <style>
       body { font-family: "Segoe UI", Arial, sans-serif; width: 260px; padding: 12px; margin: 0; }
       h4 { margin: 0 0 10px; font-size: 14px; }
@@ -16,7 +16,7 @@
     </style>
   </head>
   <body>
-    <h4>Auto-Dictate Control</h4>
+    <h4>Dictate</h4>
     <label>
       <input type="checkbox" id="enabled" /> Enable ChatGPT auto-send
     </label>
@@ -36,7 +36,7 @@
     </label>
     <label>
       Custom prefix
-      <input type="text" id="forwardPrefix" placeholder="Answer this meeting question: " />
+      <input type="text" id="forwardPrefix" placeholder="(optional) leave empty for no prefix" />
     </label>
 
     <button class="chatgpt" id="open-chatgpt">Open ChatGPT</button>
@@ -44,7 +44,7 @@
     <button id="reload-extension" style="background:#6b7280;margin-top:10px;">Reload extension</button>
 
     <hr />
-    <p><strong>Teams bridge:</strong> Join a meeting and click <strong>Start Teams→ChatGPT</strong>. Live captions are turned on automatically. Auto-forward and prefix are set below.</p>
+    <p><strong>Teams bridge:</strong> Join a meeting — <strong>Send</strong> and Settings appear on the meeting bar before More. Use Settings for Start / Captions / Stop.</p>
 
     <script src="popup.js"></script>
   </body>

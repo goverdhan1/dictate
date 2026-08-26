@@ -1,20 +1,24 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Auto-Dictate & Teams Bridge",
-  "description": "Auto-send ChatGPT dictation, and forward Teams meeting voice (live captions + mic) to ChatGPT for answers.",
-  "version": "1.3.2",
+  "name": "Dictate",
+  "description": "Voice dictation helper for ChatGPT, plus Teams live-caption bridge to ChatGPT.",
+  "version": "1.4.6",
   "permissions": ["storage", "scripting", "activeTab", "tabs"],
   "host_permissions": [
     "https://chatgpt.com/*",
+    "https://www.chatgpt.com/*",
     "https://chat.openai.com/*",
-    "https://teams.microsoft.com/*"
+    "https://teams.microsoft.com/*",
+    "https://*.teams.microsoft.com/*",
+    "https://teams.live.com/*",
+    "https://*.teams.live.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ChatGPT Auto-Dictate"
+    "default_title": "Dictate"
   },
   "icons": {
     "16": "icons/icon16.png",
@@ -23,12 +27,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://www.chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
       "js": ["content-script.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://teams.microsoft.com/*"],
+      "matches": [
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://teams.live.com/*",
+        "https://*.teams.live.com/*"
+      ],
       "js": ["teams-bridge.js"],
       "run_at": "document_idle"
     }
