@@ -1,21 +1,42 @@
-const questionEl = document.getElementById('question');
-const answerEl = document.getElementById('answer');
 const hideBtn = document.getElementById('hide-btn');
 const sendBtn = document.getElementById('send-btn');
 const resizeHandle = document.getElementById('resize-handle');
+const statusEl = document.getElementById('status');
+const loadingEl = document.getElementById('chatgpt-loading');
+const chatgptFrame = document.getElementById('chatgpt-frame');
 
 let sendBusy = false;
 let resizePointerId = null;
 let resizeLastX = 0;
 let resizeLastY = 0;
+let statusTimer = null;
+
+function setStatus(message, isError = false) {
+  clearTimeout(statusTimer);
+  const text = String(message || '').trim();
+  if (!text) {
+    statusEl.textContent = '';
+    statusEl.classList.remove('visible', 'error');
+    return;
+  }
+  statusEl.textContent = text;
+  statusEl.classList.add('visible');
+  statusEl.classList.toggle('error', !!isError);
+  if (!isError) {
+    statusTimer = setTimeout(() => setStatus(''), 4000);
+  }
+}
 
 function render(data) {
-  if (data.question) {
-    const q = data.question.length > 400 ? `${data.question.slice(0, 400)}…` : data.question;
-    questionEl.textContent = q;
+  if (!data) return;
+  const error = data.error || (data.success === false ? data.answer || data.status : '');
+  if (error) {
+    setStatus(error, true);
+    return;
   }
-  answerEl.textContent = data.answer || '';
-  answerEl.classList.toggle('streaming', !!data.streaming);
+  if (data.status) {
+    setStatus(data.status, false);
+  }
 }
 
 function setSendBusy(busy) {
@@ -30,15 +51,12 @@ async function handleSend() {
   try {
     const result = await window.dictateOverlay.send();
     if (result?.sent || result?.success) {
-      render({ answer: 'Waiting for ChatGPT…', streaming: true });
+      setStatus('Sent captions to ChatGPT');
     } else {
-      render({
-        answer: result?.error || result?.status || 'Send failed',
-        streaming: false
-      });
+      setStatus(result?.error || result?.status || 'Send failed', true);
     }
   } catch (e) {
-    render({ answer: String(e?.message || e), streaming: false });
+    setStatus(String(e?.message || e), true);
   } finally {
     setSendBusy(false);
   }
@@ -77,6 +95,23 @@ function setupResize() {
   resizeHandle.addEventListener('pointercancel', endResize);
 }
 
+function setupChatGPTFrame() {
+  if (!chatgptFrame) return;
+
+  chatgptFrame.addEventListener('did-finish-load', () => {
+    loadingEl?.classList.add('hidden');
+  });
+
+  chatgptFrame.addEventListener('did-fail-load', (event) => {
+    const code = event.errorCode;
+    if (code === -3) return;
+    if (loadingEl) {
+      loadingEl.classList.remove('hidden');
+      loadingEl.textContent = 'Could not load ChatGPT — check your network, then restart Dictate.';
+    }
+  });
+}
+
 if (window.dictateOverlay) {
   window.dictateOverlay.onData(render);
   hideBtn.addEventListener('click', () => window.dictateOverlay.hide());
@@ -84,4 +119,4 @@ if (window.dictateOverlay) {
   setupResize();
 }
 
-render({ answer: 'Overlay ready — click Send after captions appear.', streaming: false });
+setupChatGPTFrame();

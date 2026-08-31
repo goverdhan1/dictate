@@ -14,7 +14,7 @@ const store = new Store({
 
 class AppState {
   constructor() {
-    this.chatgptWindow = null;
+    this.chatgptWebContents = null;
     this.overlayWindow = null;
     this.settingsWindow = null;
     this.lastForwardKey = '';
@@ -40,6 +40,12 @@ class AppState {
 
   setUndetectable(value) {
     store.set('undetectable', !!value);
+  }
+
+  getChatGPTWebContents() {
+    const wc = this.chatgptWebContents;
+    if (!wc || wc.isDestroyed()) return null;
+    return wc;
   }
 }
 

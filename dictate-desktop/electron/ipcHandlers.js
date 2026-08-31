@@ -76,8 +76,8 @@ function setupIpc(appState, bridge) {
     win.setBounds({
       x: bounds.x,
       y: bounds.y,
-      width: Math.max(280, bounds.width + Math.round(dx || 0)),
-      height: Math.max(160, bounds.height + Math.round(dy || 0))
+      width: Math.max(420, bounds.width + Math.round(dx || 0)),
+      height: Math.max(480, bounds.height + Math.round(dy || 0))
     });
     return { success: true };
   });

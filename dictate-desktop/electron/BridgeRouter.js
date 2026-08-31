@@ -1,6 +1,7 @@
 const { buildChatGPTInjection, injectIntoWebContents } = require('./injectScripts');
+const { showOverlayWindow } = require('./WindowHelper');
 
-const DELIVER_TIMEOUT_MS = 18000;
+const DELIVER_TIMEOUT_MS = 40000;
 const PING_TIMEOUT_MS = 4000;
 
 function withTimeout(promise, ms, errorMessage) {
@@ -46,16 +47,56 @@ class BridgeRouter {
     return { success: true };
   }
 
-  async ensureChatGPTReady() {
-    const win = this.appState.chatgptWindow;
-    if (!win || win.isDestroyed()) return false;
+  listChatGPTFrames(wc) {
+    const frames = [];
+    try {
+      const root = wc.mainFrame;
+      if (root) frames.push(root);
+      if (root?.framesInSubtree?.length) frames.push(...root.framesInSubtree);
+    } catch {
+      /* fall through */
+    }
+    return frames.length ? frames : [wc];
+  }
 
-    win.webContents.setBackgroundThrottling(false);
+  async findChatGPTFrame(wc, { requireInput = false } = {}) {
+    const frames = this.listChatGPTFrames(wc);
+    let bridgeFrame = null;
+    for (const frame of frames) {
+      try {
+        const state = await frame.executeJavaScript(`({
+          bridge: typeof window.__dictateReceiveFromTeams === "function",
+          input: !!(
+            document.querySelector('#prompt-textarea')
+            || document.querySelector('[data-testid="prompt-textarea"]')
+            || document.querySelector('form[data-type="unified-composer"]')
+            || document.querySelector('[contenteditable="plaintext-only"]')
+            || document.querySelector('div.ProseMirror[contenteditable="true"]')
+            || document.querySelector('[role="textbox"]')
+          )
+        })`, true);
+        if (state?.bridge && state?.input) return frame;
+        if (state?.bridge && !bridgeFrame) bridgeFrame = frame;
+        if (state?.input && !requireInput && state?.bridge) return frame;
+      } catch {
+        /* ignore frame */
+      }
+    }
+    return bridgeFrame || frames[0] || wc;
+  }
+
+  async ensureChatGPTReady() {
+    const wc = this.appState.getChatGPTWebContents();
+    if (!wc) return false;
+
+    wc.setBackgroundThrottling(false);
 
     const ping = async () => {
       try {
+        const frame = await this.findChatGPTFrame(wc, { requireInput: false });
+        const target = frame || wc;
         return await withTimeout(
-          win.webContents.executeJavaScript(`
+          target.executeJavaScript(`
             new Promise((resolve) => {
               if (!window.chrome?.runtime?.sendMessage) return resolve(false);
               let done = false;
@@ -78,7 +119,9 @@ class BridgeRouter {
 
     const hasReceiveBridge = async () => {
       try {
-        return await win.webContents.executeJavaScript(
+        const frame = await this.findChatGPTFrame(wc, { requireInput: false });
+        const target = frame || wc;
+        return await target.executeJavaScript(
           'typeof window.__dictateReceiveFromTeams === "function"',
           true
         );
@@ -89,7 +132,7 @@ class BridgeRouter {
 
     if (!this.chatgptInjected) {
       try {
-        await injectIntoWebContents(win.webContents, buildChatGPTInjection());
+        await injectIntoWebContents(wc, buildChatGPTInjection());
         this.chatgptInjected = true;
         await new Promise((r) => setTimeout(r, 800));
       } catch (e) {
@@ -102,7 +145,7 @@ class BridgeRouter {
 
     this.chatgptInjected = false;
     try {
-      await injectIntoWebContents(win.webContents, buildChatGPTInjection());
+      await injectIntoWebContents(wc, buildChatGPTInjection());
       this.chatgptInjected = true;
       await new Promise((r) => setTimeout(r, 800));
     } catch (e) {
@@ -123,30 +166,24 @@ class BridgeRouter {
     try {
       const ready = await this.ensureChatGPTReady();
       if (!ready) {
-        return { success: false, error: 'ChatGPT page not ready — sign in in Dictate Desktop' };
+        return { success: false, error: 'ChatGPT page not ready — sign in in the overlay' };
       }
 
-      const win = this.appState.chatgptWindow;
-      if (!win || win.isDestroyed()) {
-        return { success: false, error: 'ChatGPT window unavailable' };
+      const wc = this.appState.getChatGPTWebContents();
+      if (!wc) {
+        return { success: false, error: 'ChatGPT view unavailable' };
       }
 
       const payload = JSON.stringify(String(text || ''));
-      const wasVisible = win.isVisible();
-      win.webContents.setBackgroundThrottling(false);
-      if (!wasVisible) win.showInactive();
+      wc.setBackgroundThrottling(false);
+      showOverlayWindow(this.appState);
+      const frame = await this.findChatGPTFrame(wc, { requireInput: true });
 
       try {
-        await win.webContents.executeJavaScript(
-          `window.__dictatePendingPayload = ${payload};`,
-          true
-        );
-
         const result = await withTimeout(
-          win.webContents.executeJavaScript(`
+          frame.executeJavaScript(`
             (async () => {
-              const text = window.__dictatePendingPayload;
-              delete window.__dictatePendingPayload;
+              const text = ${payload};
               if (typeof window.__dictateReceiveFromTeams !== 'function') {
                 return { success: false, error: 'ChatGPT bridge not injected — restart Dictate Desktop' };
               }
@@ -154,26 +191,12 @@ class BridgeRouter {
             })()
           `, true),
           DELIVER_TIMEOUT_MS,
-          'ChatGPT forward timed out — open a chat in Dictate Desktop'
+          'ChatGPT forward timed out — open a chat in the overlay'
         );
-
-        if (result?.success) {
-          this.relayToOverlay({
-            question: String(text || '').slice(0, 400),
-            answer: 'Waiting for ChatGPT…',
-            streaming: true
-          });
-        }
 
         return result;
       } catch (e) {
         return { success: false, error: e?.message || 'Forward failed' };
-      } finally {
-        if (!wasVisible) {
-          setTimeout(() => {
-            if (!win.isDestroyed()) win.hide();
-          }, 800);
-        }
       }
     } finally {
       this.deliverInFlight = false;
@@ -198,18 +221,22 @@ class BridgeRouter {
   }
 
   relayToOverlay(payload) {
-    if (this.appState.get('showAnswerOverlay') === false) return;
     const overlay = this.appState.overlayWindow;
     if (!overlay || overlay.isDestroyed()) return;
 
-    overlay.setOpacity(0);
-    overlay.show();
-    setTimeout(() => overlay.setOpacity(1), 50);
+    showOverlayWindow(this.appState);
+
+    const error = payload?.error
+      || (payload?.success === false || payload?.sent === false
+        ? (payload.answer || payload.status)
+        : '');
+    const status = payload?.status && !payload?.streaming ? payload.status : '';
+    if (!error && !status) return;
 
     overlay.webContents.send('overlay-data', {
-      question: payload.question || '',
-      answer: payload.answer || '',
-      streaming: payload.streaming === true
+      error: error || '',
+      status: status || '',
+      success: !error
     });
   }
 
@@ -236,7 +263,7 @@ class BridgeRouter {
         return this.deliverToChatGPTPage(message.text);
 
       case 'relayChatGPTResponse':
-        this.relayToOverlay(message);
+        showOverlayWindow(this.appState);
         return { success: true };
 
       case 'claimSendQueue':
@@ -253,7 +280,7 @@ class BridgeRouter {
         if (message.sent === false || message.success === false) {
           const err = message.error || message.status;
           if (err) {
-            this.relayToOverlay({ answer: err, streaming: false });
+            this.relayToOverlay({ error: err, success: false });
           }
         }
         return { success: true };

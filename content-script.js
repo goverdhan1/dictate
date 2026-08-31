@@ -1,6 +1,6 @@
 (function () {
-  // Only run in the top frame — chatgpt.com iframes would duplicate sends.
-  if (window !== window.top) return;
+  // Chrome extension: top frame only. Electron overlay may inject into ChatGPT child frames.
+  if (window !== window.top && !window.__dictateElectron) return;
 
   // Prevent double-injection (manifest + scripting.executeScript).
   if (window.__dictateContentScriptLoaded) {
@@ -18,13 +18,27 @@
   const COMPOSER_SELECTORS = [
     'form[data-type="unified-composer"]',
     'form:has(#prompt-textarea)',
-    'div:has(> #prompt-textarea)'
+    'div:has(> #prompt-textarea)',
+    'form:has([data-testid="prompt-textarea"])',
+    'div:has(> [data-testid="prompt-textarea"])'
   ];
 
   const INPUT_SELECTORS = [
     '#prompt-textarea',
+    '[data-testid="prompt-textarea"]',
+    '[data-testid="message-input"]',
     'div.ProseMirror[contenteditable="true"]',
-    'textarea[name="prompt-textarea"]'
+    'div.ProseMirror[contenteditable="plaintext-only"]',
+    '[contenteditable="plaintext-only"]',
+    'div[role="textbox"][contenteditable="true"]',
+    'div[role="textbox"][contenteditable="plaintext-only"]',
+    'div[role="textbox"]',
+    'textarea[name="prompt-textarea"]',
+    'textarea[placeholder*="Message" i]',
+    'textarea[placeholder*="Ask" i]',
+    '[data-id="root"][contenteditable]',
+    'form[data-type="unified-composer"] [contenteditable]',
+    'form[data-type="unified-composer"] textarea'
   ];
 
   const DICTATE_START_SELECTORS = [
@@ -51,8 +65,10 @@
 
   const SEND_SELECTORS = [
     'button[data-testid="send-button"]',
+    'button[data-testid="fruitjuice-send-button"]',
     '#composer-submit-button',
     'button[aria-label="Send prompt"]',
+    'button[aria-label="Send message"]',
     'button[aria-label="Send"]'
   ];
 
@@ -99,12 +115,62 @@
 
   function isVisible(el) {
     if (!el || el.disabled) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+    const doc = el.ownerDocument || document;
+    const win = doc.defaultView || window;
+    let style;
+    try {
+      style = win.getComputedStyle(el);
+    } catch {
+      return false;
+    }
+    if (style.display === 'none' || style.visibility === 'hidden') {
       return false;
     }
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
+  }
+
+  function collectDocuments(rootDoc = document, out = [], seen = new Set()) {
+    if (!rootDoc || seen.has(rootDoc)) return out;
+    seen.add(rootDoc);
+    out.push(rootDoc);
+    let iframes;
+    try {
+      iframes = rootDoc.querySelectorAll('iframe');
+    } catch {
+      return out;
+    }
+    for (const iframe of iframes) {
+      try {
+        const child = iframe.contentDocument;
+        if (child) collectDocuments(child, out, seen);
+      } catch {
+        /* cross-origin */
+      }
+    }
+    return out;
+  }
+
+  function isEditableInput(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return true;
+    const ce = String(el.getAttribute('contenteditable') || el.contentEditable || '').toLowerCase();
+    return ce === 'true' || ce === 'plaintext-only' || !!el.isContentEditable;
+  }
+
+  function resolveEditor(el) {
+    if (!el) return null;
+    if (isEditableInput(el)) return el;
+    try {
+      const inner = el.querySelector(
+        '[contenteditable="true"], [contenteditable="plaintext-only"], textarea, [role="textbox"]'
+      );
+      if (inner) return inner;
+    } catch {
+      /* ignore */
+    }
+    return el;
   }
 
   function buttonLabel(el) {
@@ -156,8 +222,153 @@
     return null;
   }
 
+  function queryComposerInput(root) {
+    if (!root) return null;
+    for (const sel of INPUT_SELECTORS) {
+      let nodes;
+      try {
+        nodes = root.querySelectorAll(sel);
+      } catch {
+        continue;
+      }
+      for (const el of nodes) {
+        const editor = resolveEditor(el);
+        if (!editor) continue;
+        if (editor.id === 'prompt-textarea' || editor.getAttribute('data-testid') === 'prompt-textarea') {
+          return editor;
+        }
+        if (isVisible(editor) || editor.getBoundingClientRect().width > 40) return editor;
+      }
+    }
+    return null;
+  }
+
   function getInputEl() {
-    return findFirst(INPUT_SELECTORS, document);
+    const docs = collectDocuments();
+    for (const doc of docs) {
+      const found = queryComposerInput(doc);
+      if (found) return found;
+    }
+
+    let best = null;
+    let bestArea = 0;
+    for (const doc of docs) {
+      let nodes;
+      try {
+        nodes = doc.querySelectorAll(
+          'textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]'
+        );
+      } catch {
+        continue;
+      }
+      for (const el of nodes) {
+        if (el.closest?.('nav, aside, [data-message-author-role]')) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 80) continue;
+        const area = rect.width * Math.max(rect.height, 16);
+        if (area > bestArea) {
+          best = resolveEditor(el);
+          bestArea = area;
+        }
+      }
+    }
+    return best;
+  }
+
+  function isLoginWall() {
+    const href = String(location.href || '').toLowerCase();
+    if (/\/auth|\/log-?in|signin|accounts\.google|auth0/.test(href)) return true;
+    const hasComposer = !!document.querySelector(
+      '#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"]'
+    );
+    const loginBtn = document.querySelector(
+      'button[data-testid="login-button"], button[data-testid="welcome-login-button"], a[href*="login"], a[href*="auth"]'
+    );
+    return !!(loginBtn && !hasComposer);
+  }
+
+  function clickBySelectors(selectors) {
+    for (const sel of selectors) {
+      try {
+        const nodes = document.querySelectorAll(sel);
+        for (const el of nodes) {
+          if (isVisible(el)) {
+            clickElement(el);
+            return true;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return false;
+  }
+
+  function clickByText(pattern) {
+    const re = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
+    const nodes = document.querySelectorAll('button, a, [role="button"]');
+    for (const el of nodes) {
+      const text = `${el.textContent || ''} ${buttonLabel(el)}`.replace(/\s+/g, ' ').trim();
+      if (re.test(text) && isVisible(el)) {
+        clickElement(el);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function dismissBlockingUi() {
+    clickBySelectors([
+      'button[aria-label="Close"]',
+      'button[aria-label="Dismiss"]',
+      'button[aria-label*="Close" i]',
+      '[data-testid="close-button"]',
+      '[role="dialog"] button[aria-label="Close"]'
+    ]);
+    clickByText(/^(okay|got it|continue|accept all|accept|agree|skip)$/i);
+  }
+
+  function openNewChat() {
+    return clickBySelectors([
+      'a[data-testid="create-new-chat-button"]',
+      'button[data-testid="create-new-chat-button"]',
+      '[data-testid="new-chat-button"]',
+      'a[aria-label="New chat"]',
+      'button[aria-label="New chat"]'
+    ]) || clickByText(/^new chat$/i);
+  }
+
+  function missingInputError() {
+    if (isLoginWall()) return 'Sign in to ChatGPT in the overlay first';
+    if (document.querySelector('#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"]')) {
+      return 'ChatGPT composer is hidden — click the message box, then Send again';
+    }
+    return 'ChatGPT input not found — open a new chat in the overlay';
+  }
+
+  async function ensureComposerReady(maxMs = 12000) {
+    const start = Date.now();
+    dismissBlockingUi();
+    let triedNewChat = false;
+    while (Date.now() - start < maxMs) {
+      const el = getInputEl();
+      if (el) {
+        try {
+          el.click?.();
+          el.focus?.();
+        } catch {
+          /* ignore */
+        }
+        return el;
+      }
+      if (isLoginWall()) return null;
+      if (!triedNewChat && Date.now() - start > 2500) {
+        triedNewChat = openNewChat();
+      }
+      dismissBlockingUi();
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return getInputEl();
   }
 
   function getDictateStartBtn() {
@@ -301,12 +512,14 @@
 
   function setInputText(el, text) {
     if (!el || !text) return false;
+    const doc = el.ownerDocument || document;
+    const win = doc.defaultView || window;
     el.focus();
 
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
       const proto = el.tagName === 'TEXTAREA'
-        ? window.HTMLTextAreaElement.prototype
-        : window.HTMLInputElement.prototype;
+        ? win.HTMLTextAreaElement.prototype
+        : win.HTMLInputElement.prototype;
       const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
       if (descriptor?.set) {
         descriptor.set.call(el, text);
@@ -321,17 +534,17 @@
     // ProseMirror / contenteditable — replace contents.
     try {
       el.focus();
-      const selection = window.getSelection();
-      const range = document.createRange();
+      const selection = win.getSelection();
+      const range = doc.createRange();
       range.selectNodeContents(el);
       selection.removeAllRanges();
       selection.addRange(range);
 
-      let ok = document.execCommand('insertText', false, text);
+      let ok = doc.execCommand('insertText', false, text);
       if (!ok || !getInputText(el).trim()) {
         const dt = new DataTransfer();
         dt.setData('text/plain', text);
-        el.dispatchEvent(new ClipboardEvent('paste', {
+        el.dispatchEvent(new win.ClipboardEvent('paste', {
           clipboardData: dt,
           bubbles: true,
           cancelable: true
@@ -340,8 +553,8 @@
 
       if (!getInputText(el).trim()) {
         el.textContent = '';
-        el.appendChild(document.createTextNode(text));
-        el.dispatchEvent(new InputEvent('input', {
+        el.appendChild(doc.createTextNode(text));
+        el.dispatchEvent(new win.InputEvent('input', {
           bubbles: true,
           inputType: 'insertText',
           data: text
@@ -357,22 +570,7 @@
   }
 
   function waitForInput(maxMs = 5000) {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      const tick = () => {
-        const el = getInputEl();
-        if (el) {
-          resolve(el);
-          return;
-        }
-        if (Date.now() - start >= maxMs) {
-          resolve(null);
-          return;
-        }
-        setTimeout(tick, 250);
-      };
-      tick();
-    });
+    return ensureComposerReady(maxMs);
   }
 
   let lastTeamsPayload = '';
@@ -469,10 +667,11 @@
     lastTeamsPayloadAt = now;
 
     try {
-      const inputEl = await waitForInput(8000);
+      const inputEl = await ensureComposerReady(15000);
       if (!inputEl) {
-        log('ChatGPT input not found for Teams message');
-        return { success: false, error: 'ChatGPT input not found — open a chat' };
+        const err = missingInputError();
+        log('ChatGPT input not found for Teams message', location.href, document.title, err);
+        return { success: false, error: err };
       }
 
       suppressInputWatch = true;
@@ -497,7 +696,9 @@
       }
 
       log('Received from Teams and sent:', trimmed);
-      watchAssistantResponse(trimmed, assistantCountBefore);
+      if (!window.__DICTATE_USE_NATIVE_OVERLAY__) {
+        watchAssistantResponse(trimmed, assistantCountBefore);
+      }
       return { success: true };
     } finally {
       setTimeout(() => {

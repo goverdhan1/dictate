@@ -2,9 +2,9 @@ const { app, BrowserWindow, Menu, Tray, nativeImage } = require('electron');
 const path = require('path');
 const { AppState } = require('./AppState');
 const {
-  createChatGPTWindow,
   createOverlayWindow,
-  createSettingsWindow
+  createSettingsWindow,
+  showOverlayWindow
 } = require('./WindowHelper');
 const { setupIpc } = require('./ipcHandlers');
 const { BridgeRouter } = require('./BridgeRouter');
@@ -24,6 +24,22 @@ const bridge = new BridgeRouter(appState, bridgeServer);
 bridgeServer.bridgeRouter = bridge;
 let tray = null;
 
+function openSettings() {
+  if (!appState.settingsWindow || appState.settingsWindow.isDestroyed()) {
+    createSettingsWindow(appState);
+  } else {
+    appState.settingsWindow.focus();
+  }
+}
+
+function showOrCreateOverlay() {
+  if (!appState.overlayWindow || appState.overlayWindow.isDestroyed()) {
+    createOverlayWindow(appState, wireChatGPTInjection);
+    return;
+  }
+  showOverlayWindow(appState);
+}
+
 function createTray() {
   const iconPath = path.join(__dirname, '..', '..', 'icons', 'icon16.png');
   const icon = nativeImage.createFromPath(iconPath);
@@ -31,14 +47,12 @@ function createTray() {
   tray.setToolTip('Dictate');
   tray.setContextMenu(Menu.buildFromTemplate([
     {
+      label: 'Show Overlay',
+      click: () => showOrCreateOverlay()
+    },
+    {
       label: 'Settings',
-      click: () => {
-        if (!appState.settingsWindow || appState.settingsWindow.isDestroyed()) {
-          createSettingsWindow(appState);
-        } else {
-          appState.settingsWindow.focus();
-        }
-      }
+      click: () => openSettings()
     },
     { type: 'separator' },
     { role: 'quit' }
@@ -51,14 +65,12 @@ function buildMenu() {
       label: 'Dictate',
       submenu: [
         {
+          label: 'Show Overlay',
+          click: () => showOrCreateOverlay()
+        },
+        {
           label: 'Settings',
-          click: () => {
-            if (!appState.settingsWindow || appState.settingsWindow.isDestroyed()) {
-              createSettingsWindow(appState);
-            } else {
-              appState.settingsWindow.focus();
-            }
-          }
+          click: () => openSettings()
         },
         {
           label: 'Toggle Undetectable Mode',
@@ -79,13 +91,20 @@ function buildMenu() {
   ]);
 }
 
-function wireChatGPTInjection(chatWin) {
-  chatWin.webContents.on('did-finish-load', () => {
+function wireChatGPTInjection(guestWebContents) {
+  if (!guestWebContents || guestWebContents.isDestroyed()) return;
+
+  const injectSoon = () => {
     bridge.chatgptInjected = false;
     setTimeout(async () => {
       await bridge.ensureChatGPTReady();
     }, 2000);
-  });
+  };
+
+  guestWebContents.on('did-finish-load', injectSoon);
+  if (!guestWebContents.isLoading()) {
+    injectSoon();
+  }
 }
 
 app.whenReady().then(async () => {
@@ -95,15 +114,13 @@ app.whenReady().then(async () => {
   setupIpc(appState, bridge);
   bridgeServer.start();
 
-  const chatWin = createChatGPTWindow(appState);
-  createOverlayWindow(appState);
-
-  wireChatGPTInjection(chatWin);
+  createOverlayWindow(appState, wireChatGPTInjection);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createChatGPTWindow(appState);
-      createOverlayWindow(appState);
+      createOverlayWindow(appState, wireChatGPTInjection);
+    } else {
+      showOrCreateOverlay();
     }
   });
 });

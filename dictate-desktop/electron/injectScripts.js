@@ -37,7 +37,38 @@ function buildChatGPTInjection() {
 }
 
 async function injectIntoWebContents(webContents, script) {
-  await webContents.executeJavaScript(script, true);
+  const frames = [];
+  try {
+    const root = webContents.mainFrame;
+    if (root) frames.push(root);
+    if (root?.framesInSubtree?.length) {
+      frames.push(...root.framesInSubtree);
+    }
+  } catch {
+    await webContents.executeJavaScript(script, true);
+    return;
+  }
+
+  if (!frames.length) {
+    await webContents.executeJavaScript(script, true);
+    return;
+  }
+
+  const seen = new Set();
+  let injected = 0;
+  for (const frame of frames) {
+    if (!frame || seen.has(frame)) continue;
+    seen.add(frame);
+    try {
+      await frame.executeJavaScript(script, true);
+      injected += 1;
+    } catch (e) {
+      console.warn('[Dictate] frame inject failed:', e?.message || e);
+    }
+  }
+  if (!injected) {
+    await webContents.executeJavaScript(script, true);
+  }
 }
 
 module.exports = {
