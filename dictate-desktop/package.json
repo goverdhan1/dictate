@@ -1,7 +1,7 @@
 {
   "name": "dictate-desktop",
   "version": "1.0.0",
-  "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for Teams",
+  "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for virtual meetings",
   "main": "electron/main.js",
   "author": "Dictate",
   "license": "MIT",
@@ -32,14 +32,34 @@
       "electron/**/*",
       "renderer/**/*",
       "native/**/*",
+      "../meeting-bridge-core.js",
       "../teams-bridge.js",
+      "../meet-bridge.js",
+      "../zoom-bridge.js",
+      "../webex-bridge.js",
       "../content-script.js",
       "../icons/**/*"
     ],
     "extraResources": [
       {
+        "from": "../meeting-bridge-core.js",
+        "to": "extension/meeting-bridge-core.js"
+      },
+      {
         "from": "../teams-bridge.js",
         "to": "extension/teams-bridge.js"
+      },
+      {
+        "from": "../meet-bridge.js",
+        "to": "extension/meet-bridge.js"
+      },
+      {
+        "from": "../zoom-bridge.js",
+        "to": "extension/zoom-bridge.js"
+      },
+      {
+        "from": "../webex-bridge.js",
+        "to": "extension/webex-bridge.js"
       },
       {
         "from": "../content-script.js",

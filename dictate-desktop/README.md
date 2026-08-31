@@ -1,20 +1,20 @@
 # Dictate Desktop
 
-Electron shell for Dictate with **capture-excluded ChatGPT overlay** during Teams meetings.
+Electron shell for Dictate with **capture-excluded ChatGPT overlay** during virtual meetings (Teams, Google Meet, Zoom web, Webex).
 
 ## Architecture
 
 | Component | Role |
 |-----------|------|
-| **Microsoft Teams desktop app** | Your meeting (focused on launch — not duplicated in Electron) |
-| **Chrome + Dictate extension** | Teams web tab for live captions + **Send** on meeting bar |
+| **Meeting app (desktop or web)** | Your meeting — use desktop app or Chrome tab |
+| **Chrome + Dictate extension** | Meeting web tab for live captions |
 | **Dictate Desktop** | Hidden ChatGPT window + capture-protected overlay |
 | **Bridge server** | Extension forwards to desktop at `http://127.0.0.1:38473` |
 
 ## Quick start
 
 1. Install/reload the **Chrome extension** (parent folder).
-2. Open **Teams in Chrome** (`teams.microsoft.com`) for captions and Send.
+2. Open your meeting in **Chrome** (Teams, Meet, Zoom web, or Webex) with live captions.
 3. Run the desktop app:
 
 ```bash
@@ -23,10 +23,8 @@ npm install
 npm start
 ```
 
-Dictate **focuses your existing Microsoft Teams desktop app** — it does not open a second Teams window in Electron.
-
-4. Join the meeting in Teams desktop (or Chrome).
-5. Click **Send** on the Chrome Teams meeting bar — answers appear in the protected desktop overlay.
+4. Join the meeting in Chrome (or keep desktop app focused while Chrome tab captures captions).
+5. Click **Send** on the Dictate Desktop overlay — answers appear in the protected overlay.
 
 If Electron fails to install:
 
@@ -35,9 +33,17 @@ node scripts/ensure-electron.js
 npm start
 ```
 
+## Supported platforms (Chrome web client)
+
+| Platform | Chrome URL |
+|----------|------------|
+| Microsoft Teams | `teams.microsoft.com` |
+| Google Meet | `meet.google.com` |
+| Zoom | `zoom.us/wc` web client |
+| Webex | `*.webex.com` |
+
 ## Tray / menu
 
-- **Focus Teams** — brings Microsoft Teams desktop to front
 - **Settings** — Undetectable mode, bridge options
 
 ## Undetectable Mode
@@ -58,9 +64,9 @@ npm run dist:mac   # DMG (requires macOS + signing for distribution)
 
 | Test | Expected |
 |------|----------|
-| Teams share **window** (Windows) | Overlay visible locally, absent in share |
-| Teams share **entire screen** (Windows) | Overlay absent in share |
-| Send from meeting bar | Teams desktop stays focused; overlay streams answer |
+| Share **window** (Windows) | Overlay visible locally, absent in share |
+| Share **entire screen** (Windows) | Overlay absent in share |
+| Send from overlay | Meeting tab stays focused; overlay streams answer |
 | Undetectable off | Overlay may appear in share |
 
 ## Chrome extension

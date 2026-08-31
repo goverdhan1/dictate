@@ -33,6 +33,15 @@
         if (typeof callback === 'function') callback(result);
       };
 
+      // Never IPC receiveFromTeams — main process deliver would deadlock with executeJavaScript.
+      if (message?.action === 'receiveFromTeams' && messageListeners.length === 0) {
+        deliver({
+          success: false,
+          error: 'ChatGPT bridge not ready — sign in and open a chat in Dictate Desktop'
+        });
+        return true;
+      }
+
       // Route page actions to injected content-script listeners first.
       if (message?.action && PAGE_LOCAL_ACTIONS.has(message.action) && messageListeners.length > 0) {
         let asyncReply = false;

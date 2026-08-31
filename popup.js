@@ -6,6 +6,9 @@ const forwardPrefix = document.getElementById('forwardPrefix');
 const showAnswerOverlayCheckbox = document.getElementById('showAnswerOverlay');
 const openChatGptBtn = document.getElementById('open-chatgpt');
 const openTeamsBtn = document.getElementById('open-teams');
+const openMeetBtn = document.getElementById('open-meet');
+const openZoomBtn = document.getElementById('open-zoom');
+const openWebexBtn = document.getElementById('open-webex');
 const reloadBtn = document.getElementById('reload-extension');
 
 async function loadSettings() {
@@ -72,6 +75,18 @@ openChatGptBtn.addEventListener('click', () => {
 
 openTeamsBtn.addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://teams.microsoft.com' });
+});
+
+openMeetBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://meet.google.com' });
+});
+
+openZoomBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://zoom.us/wc/join' });
+});
+
+openWebexBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://signin.webex.com/join' });
 });
 
 reloadBtn.addEventListener('click', () => {

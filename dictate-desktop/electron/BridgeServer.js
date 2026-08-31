@@ -8,11 +8,44 @@ class BridgeServer {
     this.bridgeRouter = bridgeRouter;
     this.server = null;
     this.pendingActions = [];
+    this.sendQueueProcessing = false;
+    this.sendQueueClaimedAt = 0;
   }
 
   enqueueAction(action) {
-    if (!action || this.pendingActions.includes(action)) return;
+    if (!action) return;
+    if (this.pendingActions.includes(action)) return;
     this.pendingActions.push(action);
+  }
+
+  getPendingActions() {
+    return [...this.pendingActions];
+  }
+
+  resetStaleSendQueueClaim(maxAgeMs = 35000) {
+    if (!this.sendQueueProcessing) return;
+    if (Date.now() - this.sendQueueClaimedAt > maxAgeMs) {
+      this.sendQueueProcessing = false;
+      this.sendQueueClaimedAt = 0;
+    }
+  }
+
+  tryClaimSendQueue() {
+    this.resetStaleSendQueueClaim();
+    const hasQueue = this.pendingActions.includes('sendMeetingQueue')
+      || this.pendingActions.includes('sendTeamsQueue');
+    if (!hasQueue || this.sendQueueProcessing) return false;
+    this.sendQueueProcessing = true;
+    this.sendQueueClaimedAt = Date.now();
+    return true;
+  }
+
+  completeSendQueue() {
+    this.pendingActions = this.pendingActions.filter(
+      (a) => a !== 'sendMeetingQueue' && a !== 'sendTeamsQueue'
+    );
+    this.sendQueueProcessing = false;
+    this.sendQueueClaimedAt = 0;
   }
 
   dequeueActions() {
@@ -42,8 +75,9 @@ class BridgeServer {
       }
 
       if (req.method === 'GET' && req.url === '/pending') {
+        this.resetStaleSendQueueClaim();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ actions: this.dequeueActions() }));
+        res.end(JSON.stringify({ actions: this.getPendingActions() }));
         return;
       }
 

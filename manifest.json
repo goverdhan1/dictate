@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Dictate",
-  "description": "Voice dictation helper for ChatGPT, plus Teams live-caption bridge to ChatGPT.",
-  "version": "1.6.2",
+  "description": "Voice dictation helper for ChatGPT, plus live-caption bridge from Teams, Google Meet, Zoom, and Webex to ChatGPT.",
+  "version": "1.7.3",
   "permissions": ["storage", "scripting", "activeTab", "tabs", "webNavigation", "alarms"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -13,7 +13,14 @@
     "https://teams.live.com/*",
     "https://*.teams.live.com/*",
     "https://teams.cloud.microsoft/*",
-    "https://*.teams.cloud.microsoft/*",
+    "https://*.teams.cloud.microsoft.com/*",
+    "https://teams.microsoft.us/*",
+    "https://*.teams.microsoft.us/*",
+    "https://meet.google.com/*",
+    "https://zoom.us/*",
+    "https://*.zoom.us/*",
+    "https://app.zoom.us/*",
+    "https://*.webex.com/*",
     "http://127.0.0.1:38473/*"
   ],
   "background": {
@@ -45,9 +52,36 @@
         "https://teams.live.com/*",
         "https://*.teams.live.com/*",
         "https://teams.cloud.microsoft/*",
-        "https://*.teams.cloud.microsoft/*"
+        "https://*.teams.cloud.microsoft.com/*",
+        "https://teams.microsoft.us/*",
+        "https://*.teams.microsoft.us/*"
       ],
-      "js": ["teams-bridge.js"],
+      "js": ["meeting-bridge-core.js", "teams-bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["meeting-bridge-core.js", "meet-bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://zoom.us/*",
+        "https://*.zoom.us/*",
+        "https://app.zoom.us/*"
+      ],
+      "js": ["meeting-bridge-core.js", "zoom-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.webex.com/meet/*",
+        "https://*.webex.com/*"
+      ],
+      "js": ["meeting-bridge-core.js", "webex-bridge.js"],
       "run_at": "document_idle",
       "all_frames": true
     }

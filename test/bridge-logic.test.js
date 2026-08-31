@@ -1,24 +1,23 @@
 /**
- * Unit tests for Teams→ChatGPT bridge logic (run: node test/bridge-logic.test.js)
+ * Unit tests for meeting bridge logic (run: node test/bridge-logic.test.js)
  */
+
+const path = require('path');
+const fs = require('fs');
+
+global.window = global;
+global.self = global;
+require(path.join(__dirname, '..', 'meeting-bridge-core.js'));
+
+const {
+  shouldAutoForward,
+  collapseDuplicatedPayload,
+  normalizeCaptionText,
+  bareText
+} = global.DictateMeetingBridge;
 
 function formatMessage(_source, author, text) {
   return author ? `${author}: ${text}` : text;
-}
-
-function shouldAutoForward(text, settings) {
-  const trimmed = text.trim();
-  if (!trimmed || settings.autoForwardMode === 'off') return false;
-
-  if (settings.autoForwardMode === 'questions') {
-    return /\?\s*$/.test(trimmed);
-  }
-
-  if (settings.autoForwardMode === 'sentences') {
-    return /[.!?]\s*$/.test(trimmed) && trimmed.length >= 8;
-  }
-
-  return false;
 }
 
 function buildPayload(settings, author, text) {
@@ -27,7 +26,7 @@ function buildPayload(settings, author, text) {
   return settings.forwardPrefix ? settings.forwardPrefix + body : body;
 }
 
-function scanCaptionsFromDom(document, seenCaptions) {
+function scanTeamsCaptionsFromDom(document, seenCaptions) {
   const CAPTION_SELECTORS = {
     text: "[data-tid='closed-caption-text']",
     author: "[data-tid='author']"
@@ -51,6 +50,48 @@ function scanCaptionsFromDom(document, seenCaptions) {
   return captured;
 }
 
+function scanMeetCaptionsFromDom(document, seenCaptions) {
+  const captured = [];
+  const rows = document.querySelectorAll('div[jsname="dsyhDe"]');
+  for (const row of rows) {
+    const author = (row.querySelector('div.KcIKyf')?.textContent || '').trim();
+    const text = (row.querySelector('div.bh44bd')?.textContent || '').trim();
+    if (!text) continue;
+    const key = `${author}::${text}`;
+    if (seenCaptions.has(key)) continue;
+    seenCaptions.add(key);
+    captured.push({ author, text });
+  }
+  return captured;
+}
+
+function scanZoomCaptionsFromDom(document, seenCaptions) {
+  const captured = [];
+  document.querySelectorAll('.live-transcription-subtitle__item').forEach((el) => {
+    const text = (el.textContent || '').trim();
+    if (text.length <= 1) return;
+    const key = text;
+    if (seenCaptions.has(key)) return;
+    seenCaptions.add(key);
+    captured.push({ author: '', text });
+  });
+  return captured;
+}
+
+function scanWebexCaptionsFromDom(document, seenCaptions) {
+  const captured = [];
+  document.querySelectorAll('[class*="caption-item"]').forEach((item) => {
+    const author = (item.querySelector('[class*="caption-name"]')?.textContent || '').trim();
+    const text = (item.querySelector('[class*="caption-text"]')?.textContent || '').trim();
+    if (!text) return;
+    const key = `${author}::${text}`;
+    if (seenCaptions.has(key)) return;
+    seenCaptions.add(key);
+    captured.push({ author, text });
+  });
+  return captured;
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -64,7 +105,7 @@ function assert(condition, message) {
   }
 }
 
-console.log('\n=== shouldAutoForward ===\n');
+console.log('\n=== shouldAutoForward (from meeting-bridge-core) ===\n');
 
 assert(
   shouldAutoForward('What is the deadline?', { autoForwardMode: 'questions' }),
@@ -91,6 +132,21 @@ assert(
   'off mode forwards nothing'
 );
 
+console.log('\n=== collapseDuplicatedPayload ===\n');
+
+assert(
+  collapseDuplicatedPayload('Alice: Hello?\nAlice: Hello?') === 'Alice: Hello?',
+  'collapses duplicate lines'
+);
+assert(
+  normalizeCaptionText('  hello   world  ') === 'hello world',
+  'normalizeCaptionText collapses whitespace'
+);
+assert(
+  bareText('Hello, World!') === 'hello world',
+  'bareText strips punctuation'
+);
+
 console.log('\n=== buildPayload / prefix ===\n');
 
 assert(
@@ -106,7 +162,7 @@ assert(
   'empty prefix sends author and text only'
 );
 
-console.log('\n=== caption DOM scraping (simulated Teams) ===\n');
+console.log('\n=== caption DOM scraping (platform fixtures) ===\n');
 
 const { JSDOM } = (() => {
   try {
@@ -117,7 +173,7 @@ const { JSDOM } = (() => {
 })();
 
 if (JSDOM) {
-  const dom = new JSDOM(`
+  const teamsDom = new JSDOM(`
     <div class="fui-ChatMessageCompact">
       <span data-tid="author">Alice</span>
       <span data-tid="closed-caption-text">What is the timeline?</span>
@@ -127,17 +183,42 @@ if (JSDOM) {
       <span data-tid="closed-caption-text">We need to finalize specs.</span>
     </div>
   `);
-  const seen = new Set();
-  const first = scanCaptionsFromDom(dom.window.document, seen);
-  assert(first.length === 2, 'captures two caption lines from simulated DOM');
-  assert(first[0].author === 'Alice', 'reads caption author');
-  assert(first[0].text === 'What is the timeline?', 'reads caption text');
+  const teamsSeen = new Set();
+  const teamsCaptions = scanTeamsCaptionsFromDom(teamsDom.window.document, teamsSeen);
+  assert(teamsCaptions.length === 2, 'Teams: captures two caption lines');
+  assert(teamsCaptions[0].author === 'Alice', 'Teams: reads caption author');
 
-  const second = scanCaptionsFromDom(dom.window.document, seen);
-  assert(second.length === 0, 'deduplicates already-seen captions');
+  const meetDom = new JSDOM(`
+    <div jsname="dsyhDe">
+      <div class="KcIKyf">Carol</div>
+      <div class="bh44bd">When is the demo?</div>
+    </div>
+  `);
+  const meetSeen = new Set();
+  const meetCaptions = scanMeetCaptionsFromDom(meetDom.window.document, meetSeen);
+  assert(meetCaptions.length === 1 && meetCaptions[0].text === 'When is the demo?', 'Meet: parses caption row');
 
-  const settings = { autoForwardMode: 'questions', forwardPrefix: 'Answer this meeting question: ' };
-  const toForward = first.filter((c) => shouldAutoForward(c.text, settings));
+  const zoomDom = new JSDOM(`
+    <div class="captions-box">
+      <span class="live-transcription-subtitle__item">Thanks everyone for joining.</span>
+    </div>
+  `);
+  const zoomSeen = new Set();
+  const zoomCaptions = scanZoomCaptionsFromDom(zoomDom.window.document, zoomSeen);
+  assert(zoomCaptions.length === 1, 'Zoom: captures subtitle line');
+
+  const webexDom = new JSDOM(`
+    <div class="caption-item-abc">
+      <div class="caption-name-xyz">Dave</div>
+      <div class="caption-text-xyz">Any blockers?</div>
+    </div>
+  `);
+  const webexSeen = new Set();
+  const webexCaptions = scanWebexCaptionsFromDom(webexDom.window.document, webexSeen);
+  assert(webexCaptions.length === 1 && webexCaptions[0].author === 'Dave', 'Webex: parses caption item');
+
+  const settings = { autoForwardMode: 'questions', forwardPrefix: '' };
+  const toForward = teamsCaptions.filter((c) => shouldAutoForward(c.text, settings));
   assert(toForward.length === 1 && toForward[0].author === 'Alice', 'only questions selected in questions mode');
 } else {
   console.log('  (skipped DOM tests — jsdom not installed; logic tests above still ran)');

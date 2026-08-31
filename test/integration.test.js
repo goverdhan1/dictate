@@ -4,7 +4,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('jsdom');
+
+const { JSDOM } = (() => {
+  try {
+    return { JSDOM: require('jsdom').JSDOM };
+  } catch {
+    return { JSDOM: null };
+  }
+})();
 
 let passed = 0;
 let failed = 0;
@@ -19,18 +26,56 @@ console.log('\n=== manifest.json ===\n');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 assert(manifest.manifest_version === 3, 'manifest v3');
 assert(manifest.host_permissions.includes('https://teams.microsoft.com/*'), 'Teams host permission');
+assert(manifest.host_permissions.includes('https://meet.google.com/*'), 'Meet host permission');
+assert(manifest.host_permissions.includes('https://zoom.us/*'), 'Zoom host permission');
+assert(manifest.host_permissions.includes('https://*.webex.com/*'), 'Webex host permission');
 assert(manifest.host_permissions.includes('https://chatgpt.com/*'), 'ChatGPT host permission');
 assert(manifest.permissions.includes('tabs'), 'tabs permission for bridge');
+
 const teamsScript = manifest.content_scripts.find((cs) =>
   cs.matches.some((m) => m.includes('teams.microsoft.com'))
 );
+assert(teamsScript?.js?.includes('meeting-bridge-core.js'), 'meeting-bridge-core.js registered for Teams');
 assert(teamsScript?.js?.includes('teams-bridge.js'), 'teams-bridge.js registered for Teams');
+
+const meetScript = manifest.content_scripts.find((cs) =>
+  cs.matches.some((m) => m.includes('meet.google.com'))
+);
+assert(meetScript?.js?.includes('meet-bridge.js'), 'meet-bridge.js registered for Meet');
+
+const zoomScript = manifest.content_scripts.find((cs) =>
+  cs.matches.some((m) => m.includes('zoom.us'))
+);
+assert(zoomScript?.js?.includes('zoom-bridge.js'), 'zoom-bridge.js registered for Zoom');
+
+const webexScript = manifest.content_scripts.find((cs) =>
+  cs.matches.some((m) => m.includes('webex.com'))
+);
+assert(webexScript?.js?.includes('webex-bridge.js'), 'webex-bridge.js registered for Webex');
+
 const chatgptScript = manifest.content_scripts.find((cs) =>
   cs.matches.some((m) => m.includes('chatgpt.com'))
 );
 assert(chatgptScript?.js?.includes('content-script.js'), 'content-script.js registered for ChatGPT');
 
+console.log('\n=== bridge source files exist ===\n');
+
+const bridgeFiles = [
+  'meeting-bridge-core.js',
+  'teams-bridge.js',
+  'meet-bridge.js',
+  'zoom-bridge.js',
+  'webex-bridge.js'
+];
+for (const file of bridgeFiles) {
+  assert(fs.existsSync(path.join(__dirname, '..', file)), `${file} exists`);
+}
+
 console.log('\n=== ChatGPT receiveFromTeams (simulated DOM) ===\n');
+
+if (!JSDOM) {
+  console.log('  (skipped — jsdom not installed)');
+} else {
 
 function setInputText(el, text) {
   if (!el || !text) return false;
@@ -54,11 +99,12 @@ const chatgptDom = new JSDOM(`
 `);
 const doc = chatgptDom.window.document;
 const textarea = doc.querySelector('#prompt-textarea');
-const testMessage = 'Answer this meeting question: Alice: What is the deadline?';
+const testMessage = 'Alice: What is the deadline?';
 
 assert(!!textarea, 'ChatGPT #prompt-textarea found in simulated DOM');
 assert(setInputText(textarea, testMessage), 'setInputText writes to textarea');
-assert(textarea.value === testMessage, 'textarea value matches forwarded Teams message');
+assert(textarea.value === testMessage, 'textarea value matches forwarded meeting message');
+}
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
 process.exit(failed > 0 ? 1 : 0);

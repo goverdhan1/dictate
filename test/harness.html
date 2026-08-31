@@ -2,41 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Teams Bridge Test Harness</title>
+  <title>Meeting Bridge Test Harness</title>
   <style>
     body { font-family: Segoe UI, sans-serif; padding: 20px; max-width: 720px; }
     .log { background: #111; color: #0f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; min-height: 120px; }
     button { margin: 6px 6px 6px 0; padding: 8px 12px; cursor: pointer; }
     .mock-caption { border: 1px solid #ccc; padding: 10px; margin-top: 12px; border-radius: 6px; }
+    select { margin-bottom: 10px; padding: 6px; }
   </style>
 </head>
 <body>
-  <h2>Teams→ChatGPT Bridge — Local Harness</h2>
-  <p>Simulates Teams live captions and tests auto-forward rules without a real meeting.</p>
+  <h2>Meeting→ChatGPT Bridge — Local Harness</h2>
+  <p>Simulates live captions and tests auto-forward rules without a real meeting.</p>
+
+  <label>
+    Platform
+    <select id="platform">
+      <option value="teams">Microsoft Teams</option>
+      <option value="meet">Google Meet</option>
+      <option value="zoom">Zoom</option>
+      <option value="webex">Webex</option>
+    </select>
+  </label>
 
   <button id="add-question">Add caption (question)</button>
   <button id="add-sentence">Add caption (sentence)</button>
   <button id="run-scan">Run caption scan</button>
   <button id="clear">Clear log</button>
 
-  <div class="mock-caption" id="caption-area">
-    <div data-tid="closed-caption-v2-virtual-list-content">
-      <div class="fui-ChatMessageCompact">
-        <span data-tid="author">Test Speaker</span>
-        <span data-tid="closed-caption-text">What should we prioritize first?</span>
-      </div>
-    </div>
-  </div>
+  <div class="mock-caption" id="caption-area"></div>
 
   <h3>Log</h3>
   <div class="log" id="log"></div>
 
   <script>
-    const CAPTION_SELECTORS = { text: "[data-tid='closed-caption-text']", author: "[data-tid='author']" };
-    const seenCaptions = new Set();
-    const settings = { autoForwardMode: 'sentences', forwardPrefix: 'Answer this meeting question: ' };
+    const settings = { autoForwardMode: 'sentences', forwardPrefix: '' };
     const logEl = document.getElementById('log');
-    const list = document.querySelector("[data-tid='closed-caption-v2-virtual-list-content']");
+    const captionArea = document.getElementById('caption-area');
+    const platformSelect = document.getElementById('platform');
+    const seenCaptions = new Set();
+
+    const fixtures = {
+      teams: {
+        html: `
+          <div data-tid="closed-caption-v2-virtual-list-content" id="caption-list">
+            <div class="fui-ChatMessageCompact">
+              <span data-tid="author">Test Speaker</span>
+              <span data-tid="closed-caption-text">What should we prioritize first?</span>
+            </div>
+          </div>`,
+        listSelector: '#caption-list',
+        scan: () => {
+          const out = [];
+          document.querySelectorAll("[data-tid='closed-caption-text']").forEach((node) => {
+            const text = (node.textContent || '').trim();
+            if (!text) return;
+            const row = node.closest('.fui-ChatMessageCompact');
+            const author = (row?.querySelector("[data-tid='author']")?.textContent || '').trim();
+            out.push({ author, text });
+          });
+          return out;
+        },
+        addQuestion: () => '<div class="fui-ChatMessageCompact"><span data-tid="author">Colleague</span><span data-tid="closed-caption-text">Can we move the deadline?</span></div>',
+        addSentence: () => '<div class="fui-ChatMessageCompact"><span data-tid="author">Manager</span><span data-tid="closed-caption-text">The release is scheduled for next month.</span></div>'
+      },
+      meet: {
+        html: `<div id="caption-list"><div jsname="dsyhDe"><div class="KcIKyf">Test Speaker</div><div class="bh44bd">What should we prioritize first?</div></div></div>`,
+        listSelector: '#caption-list',
+        scan: () => {
+          const out = [];
+          document.querySelectorAll('div[jsname="dsyhDe"]').forEach((row) => {
+            const author = (row.querySelector('div.KcIKyf')?.textContent || '').trim();
+            const text = (row.querySelector('div.bh44bd')?.textContent || '').trim();
+            if (text) out.push({ author, text });
+          });
+          return out;
+        },
+        addQuestion: () => '<div jsname="dsyhDe"><div class="KcIKyf">Colleague</div><div class="bh44bd">Can we move the deadline?</div></div>',
+        addSentence: () => '<div jsname="dsyhDe"><div class="KcIKyf">Manager</div><div class="bh44bd">The release is scheduled for next month.</div></div>'
+      },
+      zoom: {
+        html: `<div class="captions-box" id="caption-list"><span class="live-transcription-subtitle__item">What should we prioritize first?</span></div>`,
+        listSelector: '#caption-list',
+        scan: () => {
+          const out = [];
+          document.querySelectorAll('.live-transcription-subtitle__item').forEach((el) => {
+            const text = (el.textContent || '').trim();
+            if (text.length > 1) out.push({ author: '', text });
+          });
+          return out;
+        },
+        addQuestion: () => '<span class="live-transcription-subtitle__item">Can we move the deadline?</span>',
+        addSentence: () => '<span class="live-transcription-subtitle__item">The release is scheduled for next month.</span>'
+      },
+      webex: {
+        html: `<div id="caption-list"><div class="caption-item-abc"><div class="caption-name-xyz">Test Speaker</div><div class="caption-text-xyz">What should we prioritize first?</div></div></div>`,
+        listSelector: '#caption-list',
+        scan: () => {
+          const out = [];
+          document.querySelectorAll('[class*="caption-item"]').forEach((item) => {
+            const author = (item.querySelector('[class*="caption-name"]')?.textContent || '').trim();
+            const text = (item.querySelector('[class*="caption-text"]')?.textContent || '').trim();
+            if (text) out.push({ author, text });
+          });
+          return out;
+        },
+        addQuestion: () => '<div class="caption-item-abc"><div class="caption-name-xyz">Colleague</div><div class="caption-text-xyz">Can we move the deadline?</div></div>',
+        addSentence: () => '<div class="caption-item-abc"><div class="caption-name-xyz">Manager</div><div class="caption-text-xyz">The release is scheduled for next month.</div></div>'
+      }
+    };
 
     function log(msg) {
       logEl.textContent += msg + '\n';
@@ -54,17 +128,23 @@
       return author ? `${author}: ${text}` : text;
     }
 
+    function loadFixture() {
+      const key = platformSelect.value;
+      captionArea.innerHTML = fixtures[key].html;
+      seenCaptions.clear();
+      log(`Loaded ${key} fixture.`);
+      scanCaptions();
+    }
+
     function scanCaptions() {
-      const nodes = document.querySelectorAll(CAPTION_SELECTORS.text);
-      for (const node of nodes) {
-        const text = (node.textContent || '').trim();
-        if (!text) continue;
-        const row = node.closest('.fui-ChatMessageCompact');
-        const author = (row?.querySelector(CAPTION_SELECTORS.author)?.textContent || '').trim();
-        const key = `${author}::${text}`;
-        if (seenCaptions.has(key)) continue;
-        seenCaptions.add(key);
-        log(`Captured: ${author} — "${text}"`);
+      const key = platformSelect.value;
+      const fixture = fixtures[key];
+      const captions = fixture.scan();
+      for (const { author, text } of captions) {
+        const k = `${author}::${text}`;
+        if (seenCaptions.has(k)) continue;
+        seenCaptions.add(k);
+        log(`Captured: ${author || 'Speaker'} — "${text}"`);
         if (shouldAutoForward(text, settings)) {
           const payload = settings.forwardPrefix + formatMessage(author, text);
           log(`→ WOULD FORWARD TO CHATGPT: ${payload}`);
@@ -74,25 +154,21 @@
       }
     }
 
+    platformSelect.addEventListener('change', loadFixture);
     document.getElementById('run-scan').addEventListener('click', scanCaptions);
     document.getElementById('clear').addEventListener('click', () => { logEl.textContent = ''; });
     document.getElementById('add-question').addEventListener('click', () => {
-      const div = document.createElement('div');
-      div.className = 'fui-ChatMessageCompact';
-      div.innerHTML = '<span data-tid="author">Colleague</span><span data-tid="closed-caption-text">Can we move the deadline?</span>';
-      list.appendChild(div);
+      const list = document.querySelector(fixtures[platformSelect.value].listSelector);
+      list.insertAdjacentHTML('beforeend', fixtures[platformSelect.value].addQuestion());
       scanCaptions();
     });
     document.getElementById('add-sentence').addEventListener('click', () => {
-      const div = document.createElement('div');
-      div.className = 'fui-ChatMessageCompact';
-      div.innerHTML = '<span data-tid="author">Manager</span><span data-tid="closed-caption-text">The release is scheduled for next month.</span>';
-      list.appendChild(div);
+      const list = document.querySelector(fixtures[platformSelect.value].listSelector);
+      list.insertAdjacentHTML('beforeend', fixtures[platformSelect.value].addSentence());
       scanCaptions();
     });
 
-    log('Harness ready. Click "Run caption scan" or add captions.');
-    scanCaptions();
+    loadFixture();
   </script>
 </body>
 </html>

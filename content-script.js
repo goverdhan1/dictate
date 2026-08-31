@@ -508,6 +508,10 @@
     }
   }
 
+  if (window.__dictateElectron) {
+    window.__dictateReceiveFromTeams = receiveFromTeams;
+  }
+
   function clearInput(inputEl) {
     if (!inputEl) return;
     if (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT') {
@@ -752,7 +756,9 @@
     } else if (message.action === 'submit') {
       sendResponse({ success: submitCurrent() });
     } else if (message.action === 'receiveFromTeams') {
-      receiveFromTeams(message.text).then(sendResponse);
+      receiveFromTeams(message.text)
+        .then((r) => sendResponse(r))
+        .catch((e) => sendResponse({ success: false, error: String(e) }));
       return true;
     }
   });
@@ -843,8 +849,4 @@
     attachObservers();
     injectButtons();
   }, 1500);
-
-  if (window.__dictateElectron) {
-    window.__dictateReceiveFromTeams = receiveFromTeams;
-  }
 })();

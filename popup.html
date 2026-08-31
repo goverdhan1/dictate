@@ -4,13 +4,18 @@
     <meta charset="utf-8" />
     <title>Dictate</title>
     <style>
-      body { font-family: "Segoe UI", Arial, sans-serif; width: 260px; padding: 12px; margin: 0; }
+      body { font-family: "Segoe UI", Arial, sans-serif; width: 280px; padding: 12px; margin: 0; }
       h4 { margin: 0 0 10px; font-size: 14px; }
       label { display: block; margin-bottom: 8px; font-size: 13px; }
       select, input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px; font-size: 13px; }
       button { margin-top: 6px; width: 100%; padding: 8px; cursor: pointer; border: none; border-radius: 4px; color: #fff; }
       .chatgpt { background: #2563eb; }
       .teams { background: #6264a7; }
+      .meet { background: #1a73e8; }
+      .zoom { background: #2d8cff; }
+      .webex { background: #00a0df; }
+      .row { display: flex; gap: 6px; }
+      .row button { flex: 1; margin-top: 6px; font-size: 12px; padding: 6px; }
       p { font-size: 11px; color: #605e5c; margin: 8px 0 0; line-height: 1.4; }
       hr { border: none; border-top: 1px solid #e1dfdd; margin: 10px 0; }
     </style>
@@ -21,10 +26,10 @@
       <input type="checkbox" id="enabled" /> Enable ChatGPT auto-send
     </label>
     <label>
-      <input type="checkbox" id="bridgeEnabled" checked /> Enable Teams→ChatGPT bridge
+      <input type="checkbox" id="bridgeEnabled" checked /> Enable meeting→ChatGPT bridge
     </label>
     <label>
-      <input type="checkbox" id="autoEnableCaptions" checked /> Auto-enable Teams live captions
+      <input type="checkbox" id="autoEnableCaptions" checked /> Auto-enable live captions
     </label>
     <label>
       Auto-forward to ChatGPT
@@ -43,11 +48,18 @@
     </label>
 
     <button class="chatgpt" id="open-chatgpt">Open ChatGPT</button>
-    <button class="teams" id="open-teams">Open Microsoft Teams</button>
+    <div class="row">
+      <button class="teams" id="open-teams">Teams</button>
+      <button class="meet" id="open-meet">Meet</button>
+    </div>
+    <div class="row">
+      <button class="zoom" id="open-zoom">Zoom</button>
+      <button class="webex" id="open-webex">Webex</button>
+    </div>
     <button id="reload-extension" style="background:#6b7280;margin-top:10px;">Reload extension</button>
 
     <hr />
-    <p><strong>Teams bridge:</strong> Join meetings in <strong>Chrome Teams</strong> with live captions. Click <strong>Send</strong> on the Dictate Desktop overlay to forward captions to ChatGPT.</p>
+    <p><strong>Meeting bridge:</strong> Join meetings in <strong>Chrome</strong> (Teams, Meet, Zoom web, or Webex) with live captions. Click <strong>Send</strong> on the Dictate Desktop overlay to forward captions to ChatGPT.</p>
 
     <script src="popup.js"></script>
   </body>

@@ -10,7 +10,7 @@ Automatically clicks **Send** after speech-to-text/dictation populates the input
 
 ## Dictate Desktop (Electron)
 
-For capture-excluded ChatGPT overlay during Teams meetings, see [`dictate-desktop/README.md`](dictate-desktop/README.md).
+For capture-excluded ChatGPT overlay during Teams, Google Meet, Zoom, and Webex meetings, see [`dictate-desktop/README.md`](dictate-desktop/README.md).
 
 ```bash
 cd dictate-desktop && npm install && npm start

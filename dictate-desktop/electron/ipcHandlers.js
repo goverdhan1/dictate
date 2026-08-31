@@ -65,7 +65,7 @@ function setupIpc(appState, bridge) {
     return {
       sent: false,
       success: false,
-      error: 'Send timed out — open Chrome Teams in your meeting with live captions enabled'
+      error: 'Send timed out — open your meeting in Chrome with live captions enabled'
     };
   });
 
