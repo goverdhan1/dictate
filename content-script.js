@@ -378,6 +378,77 @@
   let lastTeamsPayload = '';
   let lastTeamsPayloadAt = 0;
   let receiveFromTeamsBusy = false;
+  let responseWatchToken = 0;
+
+  function getAssistantMessages() {
+    const nodes = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (nodes.length) return Array.from(nodes);
+    return Array.from(document.querySelectorAll('article[data-testid^="conversation-turn"]')).filter((el) => {
+      const role = el.getAttribute('data-message-author-role')
+        || el.querySelector('[data-message-author-role]')?.getAttribute('data-message-author-role');
+      return role === 'assistant';
+    });
+  }
+
+  function extractAssistantText(el) {
+    if (!el) return '';
+    const markdown = el.querySelector('.markdown, [class*="markdown"]');
+    return (markdown?.innerText || el.innerText || '').trim();
+  }
+
+  function relayResponseToTeams(question, answer, streaming) {
+    if (!extensionAlive()) return;
+    try {
+      chrome.runtime.sendMessage({
+        action: 'relayChatGPTResponse',
+        question,
+        answer,
+        streaming
+      });
+    } catch (e) {
+      log('relayResponseToTeams failed:', e?.message || e);
+    }
+  }
+
+  async function watchAssistantResponse(question, assistantCountBefore) {
+    const token = ++responseWatchToken;
+    const started = Date.now();
+    let lastText = '';
+    let stableTicks = 0;
+
+    relayResponseToTeams(question, 'Waiting for ChatGPT…', true);
+
+    while (token === responseWatchToken && Date.now() - started < 120000) {
+      await new Promise((r) => setTimeout(r, 600));
+      const messages = getAssistantMessages();
+      if (messages.length <= assistantCountBefore) continue;
+
+      const latest = messages[messages.length - 1];
+      const text = extractAssistantText(latest);
+      if (!text) continue;
+
+      if (text === lastText) {
+        stableTicks += 1;
+      } else {
+        stableTicks = 0;
+        lastText = text;
+        relayResponseToTeams(question, text, true);
+      }
+
+      const streaming = !!document.querySelector(
+        'button[aria-label*="Stop" i], button[data-testid="stop-button"], button[aria-label*="Stop streaming" i]'
+      );
+      if (!streaming && stableTicks >= 2) {
+        relayResponseToTeams(question, text, false);
+        log('Assistant response relayed to Teams overlay');
+        return;
+      }
+    }
+
+    if (lastText && token === responseWatchToken) {
+      relayResponseToTeams(question, lastText, false);
+    }
+  }
 
   async function receiveFromTeams(text) {
     const trimmed = (text || '').trim();
@@ -407,6 +478,8 @@
       suppressInputWatch = true;
       sending = true;
 
+      const assistantCountBefore = getAssistantMessages().length;
+
       const ok = setInputText(inputEl, trimmed);
       if (!ok) {
         return { success: false, error: 'Could not set ChatGPT input' };
@@ -424,6 +497,7 @@
       }
 
       log('Received from Teams and sent:', trimmed);
+      watchAssistantResponse(trimmed, assistantCountBefore);
       return { success: true };
     } finally {
       setTimeout(() => {
@@ -769,4 +843,8 @@
     attachObservers();
     injectButtons();
   }, 1500);
+
+  if (window.__dictateElectron) {
+    window.__dictateReceiveFromTeams = receiveFromTeams;
+  }
 })();

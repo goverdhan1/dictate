@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dictate Settings</title>
+    <style>
+      body { font-family: "Segoe UI", Arial, sans-serif; padding: 16px; margin: 0; font-size: 13px; }
+      h2 { margin: 0 0 12px; font-size: 16px; }
+      label { display: block; margin-bottom: 10px; }
+      p.note { font-size: 11px; color: #605e5c; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <h2>Dictate Desktop</h2>
+    <label>
+      <input type="checkbox" id="undetectable" checked />
+      Undetectable Mode (exclude overlay from screen capture)
+    </label>
+    <label>
+      <input type="checkbox" id="bridgeEnabled" checked />
+      Enable Teams→ChatGPT bridge
+    </label>
+    <p class="note">
+      Windows: overlay uses DWM exclude-from-capture when Undetectable Mode is on.
+      macOS 15+ Teams/Zoom using ScreenCaptureKit may still capture the overlay.
+    </p>
+    <script src="settings.js"></script>
+  </body>
+</html>

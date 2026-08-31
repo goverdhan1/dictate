@@ -38,13 +38,16 @@
       Custom prefix
       <input type="text" id="forwardPrefix" placeholder="(optional) leave empty for no prefix" />
     </label>
+    <label>
+      <input type="checkbox" id="showAnswerOverlay" checked /> Show ChatGPT answers on overlay
+    </label>
 
     <button class="chatgpt" id="open-chatgpt">Open ChatGPT</button>
     <button class="teams" id="open-teams">Open Microsoft Teams</button>
     <button id="reload-extension" style="background:#6b7280;margin-top:10px;">Reload extension</button>
 
     <hr />
-    <p><strong>Teams bridge:</strong> Join a meeting — <strong>Send</strong> and Settings appear on the meeting bar before More. Use Settings for Start / Captions / Stop.</p>
+    <p><strong>Teams bridge:</strong> Join meetings in <strong>Chrome Teams</strong> with live captions. Click <strong>Send</strong> on the Dictate Desktop overlay to forward captions to ChatGPT.</p>
 
     <script src="popup.js"></script>
   </body>

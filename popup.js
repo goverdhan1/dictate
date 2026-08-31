@@ -3,6 +3,7 @@ const bridgeCheckbox = document.getElementById('bridgeEnabled');
 const autoEnableCaptionsCheckbox = document.getElementById('autoEnableCaptions');
 const autoForwardMode = document.getElementById('autoForwardMode');
 const forwardPrefix = document.getElementById('forwardPrefix');
+const showAnswerOverlayCheckbox = document.getElementById('showAnswerOverlay');
 const openChatGptBtn = document.getElementById('open-chatgpt');
 const openTeamsBtn = document.getElementById('open-teams');
 const reloadBtn = document.getElementById('reload-extension');
@@ -14,12 +15,14 @@ async function loadSettings() {
     autoEnableCaptions: true,
     autoForwardMode: 'questions',
     autoForwardQuestions: true,
-    forwardPrefix: ''
+    forwardPrefix: '',
+    showAnswerOverlay: true
   });
 
   checkbox.checked = data.enabled;
   bridgeCheckbox.checked = data.bridgeEnabled;
   autoEnableCaptionsCheckbox.checked = data.autoEnableCaptions !== false;
+  showAnswerOverlayCheckbox.checked = data.showAnswerOverlay !== false;
 
   let prefix = data.forwardPrefix || '';
   if (prefix === 'Answer this meeting question: ' || prefix === 'Answer this meeting question:') {
@@ -57,6 +60,10 @@ forwardPrefix.addEventListener('change', () => {
 
 forwardPrefix.addEventListener('blur', () => {
   chrome.storage.local.set({ forwardPrefix: forwardPrefix.value });
+});
+
+showAnswerOverlayCheckbox.addEventListener('change', () => {
+  chrome.storage.local.set({ showAnswerOverlay: showAnswerOverlayCheckbox.checked });
 });
 
 openChatGptBtn.addEventListener('click', () => {

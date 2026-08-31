@@ -1,2 +1,4 @@
 node_modules/
+dictate-desktop/node_modules/
+dictate-desktop/dist/
 *.key

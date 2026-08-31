@@ -1,0 +1,66 @@
+{
+  "name": "dictate-desktop",
+  "version": "1.0.0",
+  "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for Teams",
+  "main": "electron/main.js",
+  "author": "Dictate",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/ensure-electron.js",
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dictate.desktop",
+    "productName": "Dictate",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "native/**/*",
+      "../teams-bridge.js",
+      "../content-script.js",
+      "../icons/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../teams-bridge.js",
+        "to": "extension/teams-bridge.js"
+      },
+      {
+        "from": "../content-script.js",
+        "to": "extension/content-script.js"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

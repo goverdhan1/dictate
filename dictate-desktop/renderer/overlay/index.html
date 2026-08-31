@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dictate Overlay</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: "Segoe UI", Arial, sans-serif;
+        user-select: text;
+        -webkit-app-region: drag;
+      }
+      .panel {
+        margin: 8px;
+        height: calc(100% - 16px);
+        background: rgba(20, 20, 24, 0.94);
+        color: #f3f2f1;
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0,0,0,.45);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        -webkit-app-region: no-drag;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        background: rgba(0,0,0,.25);
+        -webkit-app-region: drag;
+        cursor: move;
+        flex-shrink: 0;
+      }
+      .title { font-weight: 600; font-size: 12px; flex-shrink: 0; }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        -webkit-app-region: no-drag;
+      }
+      .header-actions button {
+        border: none;
+        cursor: pointer;
+        -webkit-app-region: no-drag;
+      }
+      #send-btn {
+        padding: 5px 14px;
+        min-width: 56px;
+        height: 28px;
+        color: #fff;
+        background: #2563eb;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      #send-btn:disabled {
+        opacity: 0.65;
+        cursor: default;
+      }
+      #send-btn:not(:disabled):hover {
+        background: #1d4ed8;
+      }
+      #hide-btn {
+        background: transparent;
+        color: #fff;
+        width: 24px;
+        height: 24px;
+        font-size: 16px;
+        line-height: 1;
+        border-radius: 4px;
+      }
+      #hide-btn:hover {
+        background: rgba(255,255,255,.1);
+      }
+      .body {
+        flex: 1;
+        min-height: 0;
+        padding: 10px 12px;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+      .question {
+        font-size: 11px;
+        color: #a19f9d;
+        margin-bottom: 8px;
+        white-space: pre-wrap;
+        line-height: 1.35;
+      }
+      .answer {
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.45;
+      }
+      .answer.streaming::after {
+        content: " ▍";
+        animation: blink 1s step-end infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+      .badge {
+        font-size: 10px;
+        color: #6ee7b7;
+        margin-left: 6px;
+      }
+      .resize-handle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 16px;
+        height: 16px;
+        cursor: nwse-resize;
+        -webkit-app-region: no-drag;
+        opacity: 0.45;
+      }
+      .resize-handle::before {
+        content: "";
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid rgba(255,255,255,.7);
+        border-bottom: 2px solid rgba(255,255,255,.7);
+      }
+      .resize-handle:hover {
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="header">
+        <span class="title">ChatGPT <span class="badge" id="stealth-badge">protected</span></span>
+        <div class="header-actions">
+          <button id="send-btn" type="button" title="Send new captions to ChatGPT">Send</button>
+          <button id="hide-btn" type="button" title="Hide">×</button>
+        </div>
+      </div>
+      <div class="body">
+        <div class="question" id="question"></div>
+        <div class="answer" id="answer"></div>
+      </div>
+      <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Dictate",
   "description": "Voice dictation helper for ChatGPT, plus Teams live-caption bridge to ChatGPT.",
-  "version": "1.4.6",
-  "permissions": ["storage", "scripting", "activeTab", "tabs"],
+  "version": "1.6.2",
+  "permissions": ["storage", "scripting", "activeTab", "tabs", "webNavigation", "alarms"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://www.chatgpt.com/*",
@@ -11,7 +11,10 @@
     "https://teams.microsoft.com/*",
     "https://*.teams.microsoft.com/*",
     "https://teams.live.com/*",
-    "https://*.teams.live.com/*"
+    "https://*.teams.live.com/*",
+    "https://teams.cloud.microsoft/*",
+    "https://*.teams.cloud.microsoft/*",
+    "http://127.0.0.1:38473/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -40,10 +43,13 @@
         "https://teams.microsoft.com/*",
         "https://*.teams.microsoft.com/*",
         "https://teams.live.com/*",
-        "https://*.teams.live.com/*"
+        "https://*.teams.live.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://*.teams.cloud.microsoft/*"
       ],
       "js": ["teams-bridge.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
