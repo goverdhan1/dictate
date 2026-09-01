@@ -1,4 +1,5 @@
 node_modules/
 dictate-desktop/node_modules/
 dictate-desktop/dist/
+dist-extension/
 *.key

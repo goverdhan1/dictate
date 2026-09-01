@@ -1,0 +1,95 @@
+{
+  "manifest_version": 3,
+  "name": "Dictate",
+  "description": "Voice dictation helper for ChatGPT, plus live-caption bridge from Teams, Google Meet, Zoom, and Webex to ChatGPT.",
+  "version": "1.8.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dictate@goverdhan1.github.io",
+      "strict_min_version": "121.0"
+    }
+  },
+  "permissions": ["storage", "scripting", "activeTab", "tabs", "webNavigation", "alarms"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://www.chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://teams.microsoft.com/*",
+    "https://*.teams.microsoft.com/*",
+    "https://teams.live.com/*",
+    "https://*.teams.live.com/*",
+    "https://teams.cloud.microsoft/*",
+    "https://*.teams.cloud.microsoft.com/*",
+    "https://teams.microsoft.us/*",
+    "https://*.teams.microsoft.us/*",
+    "https://meet.google.com/*",
+    "https://zoom.us/*",
+    "https://*.zoom.us/*",
+    "https://app.zoom.us/*",
+    "https://*.webex.com/*",
+    "http://127.0.0.1:38473/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Dictate"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://www.chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://teams.live.com/*",
+        "https://*.teams.live.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://*.teams.cloud.microsoft.com/*",
+        "https://teams.microsoft.us/*",
+        "https://*.teams.microsoft.us/*"
+      ],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "teams-bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "meet-bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://zoom.us/*",
+        "https://*.zoom.us/*",
+        "https://app.zoom.us/*"
+      ],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "zoom-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.webex.com/meet/*",
+        "https://*.webex.com/*"
+      ],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "webex-bridge.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

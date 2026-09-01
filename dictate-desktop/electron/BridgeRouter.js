@@ -14,9 +14,10 @@ function withTimeout(promise, ms, errorMessage) {
 }
 
 class BridgeRouter {
-  constructor(appState, bridgeServer = null) {
+  constructor(appState, bridgeServer = null, transcriptStore = null) {
     this.appState = appState;
     this.bridgeServer = bridgeServer;
+    this.transcriptStore = transcriptStore;
     this.chatgptInjected = false;
     this.deliverInFlight = false;
   }
@@ -265,6 +266,40 @@ class BridgeRouter {
       case 'relayChatGPTResponse':
         showOverlayWindow(this.appState);
         return { success: true };
+
+      case 'appendTranscript':
+        if (this.transcriptStore && message.line) {
+          this.transcriptStore.append(message.line);
+        }
+        return { success: true };
+
+      case 'markTranscriptSent':
+        if (this.transcriptStore) {
+          const entries = message.lines || (message.line ? [message.line] : []);
+          this.transcriptStore.markSent(entries);
+        }
+        return { success: true };
+
+      case 'getTranscript': {
+        if (!this.transcriptStore) {
+          return { success: false, text: '', count: 0 };
+        }
+        const current = this.transcriptStore.getCurrent();
+        return {
+          success: true,
+          text: this.transcriptStore.formatText(),
+          count: current.lines.length,
+          startedAt: current.startedAt,
+          platform: current.platform
+        };
+      }
+
+      case 'endTranscript': {
+        if (!this.transcriptStore) return { success: false, error: 'Transcript unavailable' };
+        const current = this.transcriptStore.getCurrent();
+        if (!current.lines.length) return { success: false, error: 'No captions to save' };
+        return this.transcriptStore.endCall();
+      }
 
       case 'claimSendQueue':
         return { success: this.bridgeServer?.tryClaimSendQueue() ?? false };

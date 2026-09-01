@@ -6,8 +6,37 @@
     <style>
       body { font-family: "Segoe UI", Arial, sans-serif; padding: 16px; margin: 0; font-size: 13px; }
       h2 { margin: 0 0 12px; font-size: 16px; }
+      h3 { margin: 16px 0 8px; font-size: 13px; }
       label { display: block; margin-bottom: 10px; }
       p.note { font-size: 11px; color: #605e5c; line-height: 1.4; }
+      #transcript-meta { font-size: 11px; color: #605e5c; margin: 0 0 8px; }
+      #transcript-preview {
+        width: 100%;
+        min-height: 180px;
+        max-height: 280px;
+        box-sizing: border-box;
+        font-family: Consolas, "Segoe UI", monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        padding: 8px;
+        resize: vertical;
+        border: 1px solid #c8c6c4;
+        border-radius: 4px;
+      }
+      .row { display: flex; gap: 8px; margin-top: 8px; }
+      .row button {
+        flex: 1;
+        padding: 8px 10px;
+        cursor: pointer;
+        border: 1px solid #c8c6c4;
+        border-radius: 4px;
+        background: #f3f2f1;
+        font-size: 12px;
+      }
+      .row button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+      .row button:disabled { opacity: 0.6; cursor: default; }
+      #transcript-status { font-size: 11px; margin: 8px 0 0; min-height: 1.2em; color: #2563eb; }
+      #transcript-status.error { color: #a4262c; }
     </style>
   </head>
   <body>
@@ -21,8 +50,28 @@
       Enable meeting→ChatGPT bridge
     </label>
     <p class="note">
+      Captions work from the Teams, Zoom, Webex, and Google Meet <strong>desktop / PWA windows</strong>
+      (turn on live captions, or press Win+Ctrl+L on Windows)
+      and from browser meetings with the Dictate extension.
+    </p>
+    <p class="note">
       Windows: overlay uses DWM exclude-from-capture when Undetectable Mode is on.
       macOS 15+ Teams/Zoom using ScreenCaptureKit may still capture the overlay.
+    </p>
+
+    <h3>Meeting transcript</h3>
+    <p id="transcript-meta">No captions stored yet</p>
+    <textarea id="transcript-preview" readonly placeholder="Captions from this call appear here until you click End call."></textarea>
+    <div class="row">
+      <button type="button" id="copy-transcript">Copy</button>
+      <button type="button" id="export-transcript">Export…</button>
+      <button type="button" id="end-transcript" class="primary">End call</button>
+    </div>
+    <p id="transcript-status"></p>
+    <p class="note">
+      Every caption is stored locally for the full call.
+      <strong>Send</strong> forwards saved unsent captions (not only the latest live snippet).
+      <strong>End call</strong> saves a dated .txt and starts a new transcript.
     </p>
     <script src="settings.js"></script>
   </body>

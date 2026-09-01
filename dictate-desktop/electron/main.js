@@ -9,6 +9,8 @@ const {
 const { setupIpc } = require('./ipcHandlers');
 const { BridgeRouter } = require('./BridgeRouter');
 const { BridgeServer } = require('./BridgeServer');
+const { DesktopCaptionWatcher } = require('./DesktopCaptionWatcher');
+const { TranscriptStore } = require('./TranscriptStore');
 
 if (process.platform === 'win32') {
   try {
@@ -19,9 +21,19 @@ if (process.platform === 'win32') {
 }
 
 const appState = new AppState();
+const transcriptStore = new TranscriptStore();
 const bridgeServer = new BridgeServer(null);
-const bridge = new BridgeRouter(appState, bridgeServer);
+const bridge = new BridgeRouter(appState, bridgeServer, transcriptStore);
 bridgeServer.bridgeRouter = bridge;
+const desktopWatcher = new DesktopCaptionWatcher({
+  appState,
+  onStatus: (payload) => {
+    if (payload?.status) bridge.relayToOverlay({ status: payload.status });
+  },
+  onAutoForward: (text) => bridge.forwardToChatGPT(text),
+  onTranscript: (line) => transcriptStore.append(line),
+  transcriptStore
+});
 let tray = null;
 
 function openSettings() {
@@ -111,8 +123,9 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(buildMenu());
   createTray();
 
-  setupIpc(appState, bridge);
+  setupIpc(appState, bridge, desktopWatcher, transcriptStore);
   bridgeServer.start();
+  desktopWatcher.start();
 
   createOverlayWindow(appState, wireChatGPTInjection);
 
@@ -126,7 +139,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    desktopWatcher.stop();
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  desktopWatcher.stop();
+  try { transcriptStore.saveNow(); } catch { /* ignore */ }
 });
 
 process.on('uncaughtException', (err) => {

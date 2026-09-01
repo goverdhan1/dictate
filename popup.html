@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>Dictate</title>
     <style>
-      body { font-family: "Segoe UI", Arial, sans-serif; width: 280px; padding: 12px; margin: 0; }
+      body { font-family: "Segoe UI", Arial, sans-serif; width: 300px; padding: 12px; margin: 0; }
       h4 { margin: 0 0 10px; font-size: 14px; }
       label { display: block; margin-bottom: 8px; font-size: 13px; }
       select, input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px; font-size: 13px; }
@@ -59,7 +59,14 @@
     <button id="reload-extension" style="background:#6b7280;margin-top:10px;">Reload extension</button>
 
     <hr />
-    <p><strong>Meeting bridge:</strong> Join meetings in <strong>Chrome</strong> (Teams, Meet, Zoom web, or Webex) with live captions. Click <strong>Send</strong> on the Dictate Desktop overlay to forward captions to ChatGPT.</p>
+    <p><strong>Desktop / PWA:</strong> Join Teams, Zoom Workplace, Webex, or Google Meet in the app or Meet window, turn on live captions (Windows: Win+Ctrl+L also works), then click <strong>Send</strong> on Dictate Desktop.</p>
+    <p><strong>Browser meetings:</strong> Load this extension in Chrome, Edge, Opera, Brave, Comet, Firefox, and other Chromium browsers. Join the meeting tab with live captions, then click <strong>Send</strong>.</p>
+    <div class="row">
+      <button id="copy-transcript" style="background:#0f766e;">Copy transcript</button>
+      <button id="end-transcript" style="background:#6b7280;">New transcript</button>
+    </div>
+    <p id="transcript-status"></p>
+    <p>Every caption is stored locally until you start a new transcript. <strong>Send</strong> forwards saved unsent captions, so older lines are not dropped as new ones arrive.</p>
 
     <script src="popup.js"></script>
   </body>

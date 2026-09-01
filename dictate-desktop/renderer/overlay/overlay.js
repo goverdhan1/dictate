@@ -1,4 +1,5 @@
 const hideBtn = document.getElementById('hide-btn');
+const transcriptBtn = document.getElementById('transcript-btn');
 const sendBtn = document.getElementById('send-btn');
 const resizeHandle = document.getElementById('resize-handle');
 const statusEl = document.getElementById('status');
@@ -45,13 +46,28 @@ function setSendBusy(busy) {
   sendBtn.textContent = busy ? 'Sending…' : 'Send';
 }
 
+async function handleCopyTranscript() {
+  if (!window.dictateOverlay?.copyTranscript) return;
+  try {
+    const result = await window.dictateOverlay.copyTranscript();
+    if (result?.success) {
+      const n = result.count || 0;
+      setStatus(n ? `Copied ${n} caption${n === 1 ? '' : 's'}` : 'Copied transcript');
+    } else {
+      setStatus(result?.error || 'No captions stored yet', true);
+    }
+  } catch (e) {
+    setStatus(String(e?.message || e), true);
+  }
+}
+
 async function handleSend() {
   if (sendBusy || !window.dictateOverlay?.send) return;
   setSendBusy(true);
   try {
     const result = await window.dictateOverlay.send();
     if (result?.sent || result?.success) {
-      setStatus('Sent captions to ChatGPT');
+      setStatus(result.status || 'Sent captions to ChatGPT');
     } else {
       setStatus(result?.error || result?.status || 'Send failed', true);
     }
@@ -115,6 +131,7 @@ function setupChatGPTFrame() {
 if (window.dictateOverlay) {
   window.dictateOverlay.onData(render);
   hideBtn.addEventListener('click', () => window.dictateOverlay.hide());
+  transcriptBtn?.addEventListener('click', handleCopyTranscript);
   sendBtn.addEventListener('click', handleSend);
   setupResize();
 }

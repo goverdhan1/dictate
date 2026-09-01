@@ -9,5 +9,17 @@ contextBridge.exposeInMainWorld('dictateSettings', {
   },
   setSetting(key, value) {
     return ipcRenderer.invoke('dictate', { channel: 'set-setting', payload: { key, value } });
+  },
+  getTranscript() {
+    return ipcRenderer.invoke('transcript-get');
+  },
+  copyTranscript() {
+    return ipcRenderer.invoke('transcript-copy');
+  },
+  exportTranscript() {
+    return ipcRenderer.invoke('transcript-export');
+  },
+  endTranscript() {
+    return ipcRenderer.invoke('transcript-end');
   }
 });

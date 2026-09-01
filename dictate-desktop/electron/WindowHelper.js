@@ -136,10 +136,10 @@ function createOverlayWindow(appState, onChatGPTReady) {
 
 function createSettingsWindow(appState) {
   const win = new BrowserWindow({
-    width: 320,
-    height: 420,
+    width: 440,
+    height: 640,
     title: 'Dictate Settings',
-    resizable: false,
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload', 'settings-preload.js'),
       contextIsolation: true,

@@ -50,6 +50,19 @@
         cursor: pointer;
         -webkit-app-region: no-drag;
       }
+      #transcript-btn {
+        padding: 5px 10px;
+        height: 28px;
+        color: #f3f2f1;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      #transcript-btn:hover {
+        background: rgba(255,255,255,.1);
+      }
       #send-btn {
         padding: 5px 14px;
         min-width: 56px;
@@ -158,7 +171,8 @@
       <div class="header">
         <span class="title">ChatGPT <span class="badge" id="stealth-badge">protected</span></span>
         <div class="header-actions">
-          <button id="send-btn" type="button" title="Send new captions to ChatGPT">Send</button>
+          <button id="transcript-btn" type="button" title="Copy the full meeting transcript">Transcript</button>
+          <button id="send-btn" type="button" title="Send saved unsent captions to ChatGPT">Send</button>
           <button id="hide-btn" type="button" title="Hide">×</button>
         </div>
       </div>

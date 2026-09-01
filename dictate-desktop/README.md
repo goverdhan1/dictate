@@ -1,21 +1,48 @@
 # Dictate Desktop
 
-Electron shell for Dictate with **capture-excluded ChatGPT overlay** during virtual meetings (Teams, Google Meet, Zoom web, Webex).
+Electron shell: a **capture-excluded ChatGPT overlay** plus on-screen caption reading for desktop meeting apps.
 
-## Architecture
+For the product overview and browser extension, see the [root README](../README.md). For internals, see [Architecture](../docs/ARCHITECTURE.md).
 
-| Component | Role |
-|-----------|------|
-| **Meeting app (desktop or web)** | Your meeting — use desktop app or Chrome tab |
-| **Chrome + Dictate extension** | Meeting web tab for live captions |
-| **Dictate Desktop** | Hidden ChatGPT window + capture-protected overlay |
-| **Bridge server** | Extension forwards to desktop at `http://127.0.0.1:38473` |
+## Meeting sources
+
+| Source | How captions are read |
+|--------|------------------------|
+| **Teams / Zoom / Webex desktop apps** | On-screen live captions (Windows UI Automation; macOS Accessibility). Turn captions on in the app, or press **Win+Ctrl+L** on Windows. |
+| **Google Meet app / PWA / window** | Same watcher. The window title must contain Meet or `meet.google.com` so other Chrome/Edge windows are ignored. |
+| **Browser meetings** | Dictate extension. While this app is running, the extension posts captions into the same local transcript. |
+
+## Overlay
+
+The overlay is ChatGPT in a `<webview>`. Header actions:
+
+| Control | Behavior |
+|---------|----------|
+| **Send** | Inject saved **unsent** captions into the ChatGPT composer. Older lines stay in the transcript until they are sent. Large batches: click Send again. |
+| **Transcript** | Copy the full current call (sent and unsent) to the clipboard. |
+| **×** | Hide the overlay (tray **Show Overlay** brings it back). |
+| Resize handle | Drag the bottom-right corner. |
+
+Replies stay in the ChatGPT UI. Status messages (sent count, errors) appear in the thin banner under the header.
+
+## Settings
+
+Tray or **Dictate → Settings**:
+
+- **Undetectable Mode** — exclude the overlay from screen capture when the OS allows it.
+- **Enable meeting→ChatGPT bridge** — stop forwarding if you only want the overlay.
+- **Meeting transcript** — live preview, **Copy**, **Export…**, **End call**.
+
+**End call** writes `transcripts/YYYY-MM-DD-HHmm.txt` and starts a new `current.json`. It does not quit the meeting app.
+
+### Transcript files
+
+| OS | Folder |
+|----|--------|
+| Windows | `%APPDATA%\Dictate\transcripts` |
+| macOS | `~/Library/Application Support/Dictate/transcripts` |
 
 ## Quick start
-
-1. Install/reload the **Chrome extension** (parent folder).
-2. Open your meeting in **Chrome** (Teams, Meet, Zoom web, or Webex) with live captions.
-3. Run the desktop app:
 
 ```bash
 cd dictate-desktop
@@ -23,8 +50,7 @@ npm install
 npm start
 ```
 
-4. Join the meeting in Chrome (or keep desktop app focused while Chrome tab captures captions).
-5. Click **Send** on the Dictate Desktop overlay — answers appear in the protected overlay.
+Join a supported meeting, enable live captions, click **Send**.
 
 If Electron fails to install:
 
@@ -33,42 +59,22 @@ node scripts/ensure-electron.js
 npm start
 ```
 
-## Supported platforms (Chrome web client)
-
-| Platform | Chrome URL |
-|----------|------------|
-| Microsoft Teams | `teams.microsoft.com` |
-| Google Meet | `meet.google.com` |
-| Zoom | `zoom.us/wc` web client |
-| Webex | `*.webex.com` |
+On macOS, grant **Accessibility** to Dictate (or to Terminal / Electron when running from source) so the caption watcher can read meeting windows.
 
 ## Tray / menu
 
-- **Settings** — Undetectable mode, bridge options
+- **Show Overlay** — ChatGPT view, Send, Transcript
+- **Settings** — undetectable, bridge, transcript
+- **Toggle Undetectable Mode** (app menu)
 
 ## Undetectable Mode
 
-Toggle via **Dictate → Toggle Undetectable Mode** or Settings window.
-
-- **Windows 10 19041+**: `setContentProtection(true)` → DWM `WDA_EXCLUDEFROMCAPTURE`
-- **macOS**: `NSWindowSharingNone` via Electron (ScreenCaptureKit on macOS 15+ may still capture)
+- **Windows 10 19041+:** `setContentProtection(true)` → DWM `WDA_EXCLUDEFROMCAPTURE`
+- **macOS:** `NSWindowSharingNone` (ScreenCaptureKit on macOS 15+ may still capture the overlay)
 
 ## Build installers
 
 ```bash
 npm run dist:win   # NSIS installer in dist/
-npm run dist:mac   # DMG (requires macOS + signing for distribution)
+npm run dist:mac   # DMG (macOS + signing for distribution)
 ```
-
-## Manual capture test matrix
-
-| Test | Expected |
-|------|----------|
-| Share **window** (Windows) | Overlay visible locally, absent in share |
-| Share **entire screen** (Windows) | Overlay absent in share |
-| Send from overlay | Meeting tab stays focused; overlay streams answer |
-| Undetectable off | Overlay may appear in share |
-
-## Chrome extension
-
-Reload the extension after updating. When Dictate Desktop is running, the extension routes ChatGPT traffic to the desktop app and shows answers in the protected overlay instead of the in-page DOM overlay.

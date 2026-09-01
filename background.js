@@ -1,3 +1,7 @@
+if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'undefined') {
+  globalThis.chrome = globalThis.browser;
+}
+
 const CHATGPT_URL_PATTERNS = [
   'https://chatgpt.com/*',
   'https://www.chatgpt.com/*',
@@ -34,7 +38,7 @@ const MEETING_PLATFORMS = [
   {
     id: 'teams',
     patterns: TEAMS_URL_PATTERNS,
-    bridgeFiles: ['meeting-bridge-core.js', 'teams-bridge.js'],
+    bridgeFiles: ['caption-utils.js', 'meeting-bridge-core.js', 'teams-bridge.js'],
     isUrl: isTeamsUrl,
     frameScore: (url) => {
       const u = String(url || '');
@@ -42,24 +46,24 @@ const MEETING_PLATFORMS = [
       if (/teams\.(microsoft|live)\.com/i.test(u)) return 1;
       return 2;
     },
-    tabError: 'Open your meeting in Chrome (teams.microsoft.com or teams.cloud.microsoft.com)'
+    tabError: 'Open your meeting in the browser (teams.microsoft.com or teams.cloud.microsoft.com), or use the Teams desktop app with Dictate Desktop'
   },
   {
     id: 'meet',
     patterns: MEET_URL_PATTERNS,
-    bridgeFiles: ['meeting-bridge-core.js', 'meet-bridge.js'],
+    bridgeFiles: ['caption-utils.js', 'meeting-bridge-core.js', 'meet-bridge.js'],
     isUrl: isMeetUrl,
     frameScore: (url) => {
       const u = String(url || '');
       if (/meet\.google\.com/i.test(u) && !/\/landing/i.test(u)) return 0;
       return 1;
     },
-    tabError: 'Open your meeting in Chrome (meet.google.com)'
+    tabError: 'Open your meeting in the browser (meet.google.com)'
   },
   {
     id: 'zoom',
     patterns: ZOOM_URL_PATTERNS,
-    bridgeFiles: ['meeting-bridge-core.js', 'zoom-bridge.js'],
+    bridgeFiles: ['caption-utils.js', 'meeting-bridge-core.js', 'zoom-bridge.js'],
     isUrl: isZoomUrl,
     frameScore: (url) => {
       const u = String(url || '');
@@ -68,12 +72,12 @@ const MEETING_PLATFORMS = [
       if (/zoom\.us/i.test(u)) return 1;
       return 2;
     },
-    tabError: 'Open your meeting in Chrome (zoom.us web client)'
+    tabError: 'Open Zoom in the browser (zoom.us web client), or use the Zoom desktop app with Dictate Desktop'
   },
   {
     id: 'webex',
     patterns: WEBEX_URL_PATTERNS,
-    bridgeFiles: ['meeting-bridge-core.js', 'webex-bridge.js'],
+    bridgeFiles: ['caption-utils.js', 'meeting-bridge-core.js', 'webex-bridge.js'],
     isUrl: isWebexUrl,
     frameScore: (url) => {
       const u = String(url || '');
@@ -81,7 +85,7 @@ const MEETING_PLATFORMS = [
       if (/webex\.com/i.test(u)) return 1;
       return 2;
     },
-    tabError: 'Open your meeting in Chrome (webex.com)'
+    tabError: 'Open Webex in the browser (webex.com), or use the Webex desktop app with Dictate Desktop'
   }
 ];
 

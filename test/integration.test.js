@@ -35,7 +35,9 @@ assert(manifest.permissions.includes('tabs'), 'tabs permission for bridge');
 const teamsScript = manifest.content_scripts.find((cs) =>
   cs.matches.some((m) => m.includes('teams.microsoft.com'))
 );
+assert(teamsScript?.js?.includes('caption-utils.js'), 'caption-utils.js registered for Teams');
 assert(teamsScript?.js?.includes('meeting-bridge-core.js'), 'meeting-bridge-core.js registered for Teams');
+assert(teamsScript?.js?.indexOf('caption-utils.js') < teamsScript?.js?.indexOf('meeting-bridge-core.js'), 'caption-utils.js loads before meeting-bridge-core.js');
 assert(teamsScript?.js?.includes('teams-bridge.js'), 'teams-bridge.js registered for Teams');
 
 const meetScript = manifest.content_scripts.find((cs) =>
@@ -61,6 +63,7 @@ assert(chatgptScript?.js?.includes('content-script.js'), 'content-script.js regi
 console.log('\n=== bridge source files exist ===\n');
 
 const bridgeFiles = [
+  'caption-utils.js',
   'meeting-bridge-core.js',
   'teams-bridge.js',
   'meet-bridge.js',

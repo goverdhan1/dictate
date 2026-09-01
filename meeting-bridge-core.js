@@ -2,14 +2,46 @@
  * Shared meeting-caption → ChatGPT bridge core.
  *
  * Adapter checklist for new platforms:
- * 1. Add manifest host_permissions + content_scripts (core + *-bridge.js, all_frames if needed)
- * 2. Register platform in background.js MEETING_PLATFORMS
+ * 1. Add manifest host_permissions + content_scripts (caption-utils.js, core, *-bridge.js; all_frames if needed)
+ * 2. Register platform in background.js MEETING_PLATFORMS (same file order)
  * 3. Implement *-bridge.js with: isInMeeting, isLikelyMeetingFrame, collectCaptionsFromDom,
  *    isCaptionsUiVisible, enableLiveCaptions, hideCaptionOverlay (optional)
- * 4. Manual test: join meeting in Chrome, enable captions, Send on desktop overlay
+ * 4. Manual test: join meeting, enable captions, Send on desktop overlay
+ *
+ * Requires caption-utils.js (DictateCaptionUtils) to load first.
+ * See docs/ARCHITECTURE.md and docs/DEVELOPMENT.md.
  */
 (function () {
   const globalRoot = typeof window !== 'undefined' ? window : self;
+
+  const captionUtils = (function loadCaptionUtils() {
+    if (typeof require === 'function') {
+      try { return require('./caption-utils'); } catch { /* content script */ }
+    }
+    return globalRoot.DictateCaptionUtils;
+  })();
+
+  if (!captionUtils) {
+    console.error('[Dictate] caption-utils.js must load before meeting-bridge-core.js');
+    return;
+  }
+
+  const {
+    normalizeCaptionText,
+    normalizeAuthor,
+    bareText,
+    captionKey,
+    similarityKey,
+    shouldAutoForward,
+    formatMessage,
+    formatSendLine,
+    linesRelated,
+    emptyTranscript,
+    mergeTranscriptLine,
+    takeUnsentChunkFrom,
+    markLinesSent,
+    SEND_CHUNK_CHARS
+  } = captionUtils;
 
   const DESKTOP_BRIDGE = 'http://127.0.0.1:38473';
   const SEND_QUEUE_ACTIONS = ['sendMeetingQueue', 'sendTeamsQueue'];
@@ -162,52 +194,6 @@
     }, timeoutMs);
   }
 
-  function normalizeCaptionText(text) {
-    return (text || '')
-      .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function normalizeAuthor(author) {
-    return normalizeCaptionText(author);
-  }
-
-  function bareText(text) {
-    return normalizeCaptionText(text)
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function captionKey(author, text) {
-    return `${normalizeAuthor(author)}::${normalizeCaptionText(text)}`.toLowerCase();
-  }
-
-  function similarityKey(author, text) {
-    return `${normalizeAuthor(author).toLowerCase()}::${bareText(text)}`;
-  }
-
-  function formatMessage(_source, author, text) {
-    return author ? `${author}: ${text}` : text;
-  }
-
-  function shouldAutoForward(text, settings) {
-    const trimmed = text.trim();
-    if (!trimmed || settings.autoForwardMode === 'off') return false;
-
-    if (settings.autoForwardMode === 'questions') {
-      return /\?\s*$/.test(trimmed);
-    }
-
-    if (settings.autoForwardMode === 'sentences') {
-      return /[.!?]\s*$/.test(trimmed) && trimmed.length >= 8;
-    }
-
-    return false;
-  }
-
   function collapseDuplicatedPayload(text) {
     let t = (text || '').trim();
     if (!t) return t;
@@ -334,18 +320,11 @@
 
       for (let i = captionQueue.length - 1; i >= 0; i--) {
         const existing = captionQueue[i];
-        if (existing.author !== author) continue;
+        if (!linesRelated(existing, author, text)) continue;
 
-        existing.sim = existing.sim || similarityKey(existing.author, existing.text);
-        const existingBare = bareText(existing.text);
-        const sameMeaning = existing.sim === sim || existing.key === key || existingBare === bare;
-        const related = sameMeaning
-          || bare.startsWith(existingBare)
-          || existingBare.startsWith(bare)
-          || text.startsWith(existing.text)
-          || existing.text.startsWith(text);
-
-        if (!related) continue;
+        if (text.length > existing.text.length) {
+          persistTranscript({ author, text, key, sim });
+        }
 
         if (existing.sent) {
           seenCaptions.add(key);
@@ -353,7 +332,7 @@
           return null;
         }
 
-        if (text.length >= existing.text.length) {
+        if (text.length > existing.text.length) {
           existing.text = text;
           existing.key = key;
           existing.sim = sim;
@@ -375,6 +354,7 @@
       seenCaptions.add(key);
       seenCaptions.add(sim);
       log('Caption queued:', author, text);
+      persistTranscript(entry);
       return entry;
     }
 
@@ -415,31 +395,11 @@
     }
 
     function markCaptionsSent(entries) {
-      for (const sent of entries) {
-        const sentAuthor = normalizeAuthor(sent.author);
-        const sentBare = bareText(sent.text);
-        const sentSim = sent.sim || similarityKey(sent.author, sent.text);
-        const sentKey = captionKey(sent.author, sent.text);
-        seenCaptions.add(sentKey);
-        seenCaptions.add(sentSim);
-
-        for (const entry of captionQueue) {
-          if (entry.author !== sentAuthor) continue;
-          const entryBare = bareText(entry.text);
-          const entrySim = entry.sim || similarityKey(entry.author, entry.text);
-          if (
-            entry.key === sentKey
-            || entrySim === sentSim
-            || entryBare === sentBare
-            || entryBare.startsWith(sentBare)
-            || sentBare.startsWith(entryBare)
-          ) {
-            entry.sent = true;
-            seenCaptions.add(entry.key);
-            seenCaptions.add(entrySim);
-          }
-        }
+      for (const sent of entries || []) {
+        seenCaptions.add(captionKey(sent.author, sent.text));
+        seenCaptions.add(sent.sim || similarityKey(sent.author, sent.text));
       }
+      markLinesSent(captionQueue, entries);
     }
 
     function formatCaptionBatch(entries) {
@@ -488,6 +448,64 @@
         body: JSON.stringify(message)
       });
       return res.json();
+    }
+
+    let transcriptWriteTimer = null;
+    let pendingTranscriptLines = [];
+
+    function persistTranscript(entry) {
+      if (!entry?.text) return;
+      const line = {
+        at: Date.now(),
+        author: entry.author || '',
+        text: entry.text,
+        platform: config.id || '',
+        source: 'browser',
+        sent: false
+      };
+      pendingTranscriptLines.push(line);
+
+      isDesktopBridgeUp().then((up) => {
+        if (!up) return;
+        return postToDesktopBridge({ action: 'appendTranscript', line });
+      }).catch(() => {});
+
+      if (transcriptWriteTimer) return;
+      transcriptWriteTimer = setTimeout(() => {
+        flushStoredTranscript().catch((e) => log('transcript persist failed:', e));
+      }, 400);
+    }
+
+    async function flushStoredTranscript() {
+      if (transcriptWriteTimer) {
+        clearTimeout(transcriptWriteTimer);
+        transcriptWriteTimer = null;
+      }
+      const batch = pendingTranscriptLines.splice(0, pendingTranscriptLines.length);
+      try {
+        const data = await chrome.storage.local.get({
+          meetingTranscript: emptyTranscript()
+        });
+        const t = data.meetingTranscript && Array.isArray(data.meetingTranscript.lines)
+          ? data.meetingTranscript
+          : emptyTranscript();
+        for (const next of batch) mergeTranscriptLine(t, next, { platform: config.id, source: 'browser' });
+        await chrome.storage.local.set({ meetingTranscript: t });
+        return t;
+      } catch (e) {
+        log('transcript persist failed:', e);
+        return emptyTranscript();
+      }
+    }
+
+    async function markStoredTranscriptSent(entries) {
+      const t = await flushStoredTranscript();
+      markLinesSent(t.lines, entries);
+      await chrome.storage.local.set({ meetingTranscript: t });
+      isDesktopBridgeUp().then((up) => {
+        if (!up) return;
+        return postToDesktopBridge({ action: 'markTranscriptSent', lines: entries });
+      }).catch(() => {});
     }
 
     async function sendToExtensionBackground(message) {
@@ -659,7 +677,10 @@
           for (const entry of newlyAdded) {
             if (entry.sent || !shouldAutoForward(entry.text, settings)) continue;
             forwardToChatGPT(captionSourceLabel, entry.author, entry.text).then((result) => {
-              if (result?.success) markCaptionsSent([entry]);
+              if (result?.success) {
+                markCaptionsSent([entry]);
+                markStoredTranscriptSent([entry]);
+              }
             });
           }
         });
@@ -722,7 +743,10 @@
         getSettings().then((settings) => {
           if (!entry || !shouldAutoForward(finalText, settings)) return;
           forwardToChatGPT('Microphone', 'You', finalText).then((result) => {
-            if (result?.success) markCaptionsSent([entry]);
+            if (result?.success) {
+              markCaptionsSent([entry]);
+              markStoredTranscriptSent([entry]);
+            }
           });
         });
       };
@@ -874,27 +898,39 @@
         if (config.rebuildCaptionsForSend) {
           config.rebuildCaptionsForSend(bridgeHelpers);
         }
-        let unsent = getUnsentCaptions();
+
+        const stored = await flushStoredTranscript();
+        const chunk = takeUnsentChunkFrom(stored.lines, SEND_CHUNK_CHARS);
+        let unsent = chunk.lines;
 
         if (!unsent.length) {
-          updateStatus('No new captions yet');
+          updateStatus('No unsent captions — new lines will queue here');
           return { success: false, sent: false, status: lastStatusText };
         }
 
-        let body = collapseDuplicatedPayload(formatCaptionBatch(unsent));
+        let body = collapseDuplicatedPayload(unsent.map((c) => formatSendLine(c)).filter(Boolean).join('\n'));
         if (!body.trim()) {
-          updateStatus('No new captions yet');
+          updateStatus('No unsent captions — new lines will queue here');
           return { success: false, sent: false, status: lastStatusText };
         }
 
-        const lineCount = body.split('\n').filter(Boolean).length;
-        updateStatus(`Sending ${lineCount}…`);
+        const lineCount = unsent.length;
+        const remaining = chunk.remaining;
+        updateStatus(`Sending ${lineCount} from transcript…`);
 
         const result = await forwardToChatGPT('Manual', '', body, { force: true });
         if (result?.success) {
           markCaptionsSent(unsent);
-          updateStatus(`Sent ${lineCount}`);
-          return { success: true, sent: true, status: lastStatusText, lineCount };
+          markLinesSent(stored.lines, unsent);
+          await chrome.storage.local.set({ meetingTranscript: stored });
+          isDesktopBridgeUp().then((up) => {
+            if (!up) return;
+            return postToDesktopBridge({ action: 'markTranscriptSent', lines: unsent });
+          }).catch(() => {});
+          updateStatus(remaining
+            ? `Sent ${lineCount} from transcript · ${remaining} still queued, click Send again`
+            : `Sent ${lineCount} from transcript`);
+          return { success: true, sent: true, status: lastStatusText, lineCount, remaining };
         }
         updateStatus(result?.error || 'Send failed');
         return { success: false, sent: false, status: lastStatusText, error: result?.error || 'Send failed' };

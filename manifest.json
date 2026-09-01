@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "Dictate",
   "description": "Voice dictation helper for ChatGPT, plus live-caption bridge from Teams, Google Meet, Zoom, and Webex to ChatGPT.",
-  "version": "1.7.3",
+  "version": "1.8.0",
+  "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "activeTab", "tabs", "webNavigation", "alarms"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -56,13 +57,13 @@
         "https://teams.microsoft.us/*",
         "https://*.teams.microsoft.us/*"
       ],
-      "js": ["meeting-bridge-core.js", "teams-bridge.js"],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "teams-bridge.js"],
       "run_at": "document_idle",
       "all_frames": true
     },
     {
       "matches": ["https://meet.google.com/*"],
-      "js": ["meeting-bridge-core.js", "meet-bridge.js"],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "meet-bridge.js"],
       "run_at": "document_idle",
       "all_frames": true
     },
@@ -72,7 +73,7 @@
         "https://*.zoom.us/*",
         "https://app.zoom.us/*"
       ],
-      "js": ["meeting-bridge-core.js", "zoom-bridge.js"],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "zoom-bridge.js"],
       "run_at": "document_start",
       "all_frames": true
     },
@@ -81,7 +82,7 @@
         "https://*.webex.com/meet/*",
         "https://*.webex.com/*"
       ],
-      "js": ["meeting-bridge-core.js", "webex-bridge.js"],
+      "js": ["caption-utils.js", "meeting-bridge-core.js", "webex-bridge.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
