@@ -28,7 +28,18 @@ bridgeServer.bridgeRouter = bridge;
 const desktopWatcher = new DesktopCaptionWatcher({
   appState,
   onStatus: (payload) => {
-    if (payload?.status) bridge.relayToOverlay({ status: payload.status });
+    if (payload?.status) bridge.relayToOverlay(payload);
+  },
+  onMeetingDetails: (payload) => {
+    bridge.relayToOverlay({
+      status: payload.meetingIdDisplay
+        ? `Zoom Meeting ID ${payload.meetingIdDisplay}`
+        : '',
+      meetingId: payload.meetingId,
+      meetingIdDisplay: payload.meetingIdDisplay,
+      joinUrl: payload.joinUrl,
+      joinLabel: payload.meetingId ? `Open Zoom ${payload.meetingId} in Chrome` : 'Open Zoom in Chrome'
+    });
   },
   onAutoForward: (text) => bridge.forwardToChatGPT(text),
   onTranscript: (line) => transcriptStore.append(line),
@@ -123,6 +134,11 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(buildMenu());
   createTray();
 
+  try {
+    appState.set('lastZoomMeetingId', '');
+    appState.set('lastZoomPasscode', '');
+  } catch { /* ignore */ }
+
   setupIpc(appState, bridge, desktopWatcher, transcriptStore);
   bridgeServer.start();
   desktopWatcher.start();
@@ -151,5 +167,9 @@ app.on('before-quit', () => {
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[Dictate] uncaughtException:', err);
+  console.error('[Dictate] uncaughtException:', err?.stack || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Dictate] unhandledRejection:', reason);
 });

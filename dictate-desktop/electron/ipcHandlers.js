@@ -1,5 +1,105 @@
-const { ipcMain, BrowserWindow, clipboard, dialog } = require('electron');
+const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
+const { spawn } = require('child_process');
 const { refreshUndetectable } = require('./WindowHelper');
+const {
+  parseZoomMeetingId,
+  parseZoomPasscode,
+  buildZoomJoinUrl,
+  extractZoomInviteUrl,
+  formatZoomMeetingId
+} = require('./CaptionQueue');
+
+const JOIN_PAGES = {
+  zoom: { joinUrl: 'https://app.zoom.us/wc/join', joinLabel: 'Open Zoom in Chrome' },
+  teams: { joinUrl: 'https://teams.microsoft.com', joinLabel: 'Open Teams in Chrome' },
+  meet: { joinUrl: 'https://meet.google.com', joinLabel: 'Open Meet in Chrome' },
+  webex: { joinUrl: 'https://signin.webex.com/join', joinLabel: 'Open Webex in Chrome' }
+};
+
+function zoomDetailsFromClipboard() {
+  try {
+    const text = clipboard.readText() || '';
+    const inviteUrl = extractZoomInviteUrl(text);
+    if (!inviteUrl && !/(?:meeting\s*id|confno)/i.test(text)) {
+      return { inviteUrl: '', meetingId: '', passcode: '' };
+    }
+    return {
+      inviteUrl,
+      meetingId: parseZoomMeetingId(inviteUrl || text),
+      passcode: parseZoomPasscode(inviteUrl || text),
+      source: inviteUrl ? 'invite' : 'labeled'
+    };
+  } catch {
+    return { inviteUrl: '', meetingId: '', passcode: '' };
+  }
+}
+
+function joinPageFor(desktopWatcher, preferred = '') {
+  const platform = String(
+    preferred
+    || desktopWatcher?.activePlatform
+    || desktopWatcher?.detected?.[0]
+    || 'zoom'
+  ).toLowerCase();
+  if (platform === 'zoom') {
+    const clip = zoomDetailsFromClipboard();
+    // Prefer live Zoom process ID over clipboard unless clipboard has a full invite URL.
+    const meetingId = (clip.inviteUrl && clip.meetingId)
+      ? clip.meetingId
+      : (desktopWatcher?.meetingId || clip.meetingId || '');
+    const passcode = (clip.inviteUrl && clip.passcode)
+      ? clip.passcode
+      : (desktopWatcher?.meetingPasscode || clip.passcode || '');
+    const source = (clip.inviteUrl && clip.meetingId)
+      ? 'invite'
+      : (desktopWatcher?.meetingIdSource || clip.source || '');
+    if (meetingId) desktopWatcher?.rememberMeetingDetails?.(meetingId, passcode, source);
+    return {
+      joinUrl: buildZoomJoinUrl({ inviteUrl: clip.inviteUrl, meetingId, passcode }),
+      joinLabel: meetingId ? `Open Zoom ${meetingId} in Chrome` : 'Open Zoom in Chrome',
+      meetingId: meetingId || '',
+      meetingIdDisplay: meetingId ? formatZoomMeetingId(meetingId) : '',
+      passcode: passcode || ''
+    };
+  }
+  return JOIN_PAGES[platform] || JOIN_PAGES.zoom;
+}
+
+async function resolveZoomJoinPage(desktopWatcher) {
+  if (desktopWatcher?.probeZoomMeetingDetails) {
+    await desktopWatcher.probeZoomMeetingDetails();
+  }
+  return joinPageFor(desktopWatcher, 'zoom');
+}
+
+function needsBrowserJoin(result) {
+  const err = `${result?.error || ''} ${result?.status || ''} ${result?.joinUrl || ''}`;
+  return /chrome|browser tab|zoom\.us\/wc|app\.zoom\.us|cannot be bridged|open your meeting|join the meeting in chrome/i.test(err);
+}
+
+function openInChrome(url) {
+  const target = String(url || '').trim();
+  if (!target) return { success: false, error: 'Missing URL' };
+  try {
+    if (process.platform === 'win32') {
+      spawn('cmd.exe', ['/c', 'start', '', 'chrome', target], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      }).unref();
+      return { success: true, url: target };
+    }
+    shell.openExternal(target);
+    return { success: true, url: target };
+  } catch (e) {
+    try {
+      shell.openExternal(target);
+      return { success: true, url: target };
+    } catch (err) {
+      return { success: false, error: err?.message || String(e) };
+    }
+  }
+}
 
 function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = null) {
   ipcMain.handle('dictate', async (event, { channel, payload }) => {
@@ -83,14 +183,6 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       if (afterWait) return afterWait;
     }
 
-    if (transcriptStore?.getCurrent()?.lines?.length && !transcriptStore.hasUnsent()) {
-      return {
-        sent: false,
-        success: false,
-        error: 'No unsent captions — new lines will queue here'
-      };
-    }
-
     const queued = bridge.requestSendFromOverlay();
     if (!queued?.success) {
       return {
@@ -104,12 +196,32 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       await new Promise((r) => setTimeout(r, 200));
       const result = appState.lastSendResult;
       if (result?.at && result.at >= startedAt) {
-        return {
+        const payload = {
           sent: !!result.sent,
           success: !!result.success,
           error: result.error,
-          status: result.status
+          status: result.status,
+          joinUrl: result.joinUrl,
+          joinLabel: result.joinLabel
         };
+        if (!payload.sent && needsBrowserJoin(payload)) {
+          const probed = await resolveZoomJoinPage(desktopWatcher);
+          const withJoin = {
+            ...payload,
+            ...probed,
+            joinUrl: probed.meetingId ? probed.joinUrl : (payload.joinUrl || probed.joinUrl),
+            joinLabel: probed.joinLabel
+          };
+          openInChrome(withJoin.joinUrl);
+          return withJoin;
+        }
+        if (!payload.sent && /no unsent captions/i.test(`${payload.error || ''} ${payload.status || ''}`)) {
+          return {
+            ...payload,
+            error: 'No new captions yet — in the Chrome Zoom tab, turn on Captions / Live Transcript, wait for speech, then click Send'
+          };
+        }
+        return payload;
       }
     }
 
@@ -121,11 +233,14 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       };
     }
 
-    return {
+    const timeoutJoin = {
       sent: false,
       success: false,
-      error: 'Send timed out — join a desktop meeting with live captions, or open the meeting in your browser with the Dictate extension'
+      error: 'Send timed out — join the meeting in Chrome, enable live captions, then click Send.',
+      ...(await resolveZoomJoinPage(desktopWatcher))
     };
+    openInChrome(timeoutJoin.joinUrl);
+    return timeoutJoin;
   });
 
   ipcMain.handle('transcript-get', async () => {
@@ -167,6 +282,21 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     const current = transcriptStore.getCurrent();
     if (!current.lines.length) return { success: false, error: 'No captions to save' };
     return transcriptStore.endCall();
+  });
+
+  ipcMain.handle('overlay-open-url', async (_event, payload) => {
+    const requested = String(payload?.url || '').trim();
+    const hasMeetingId = /\/wc\/\d{9,11}\//.test(requested);
+    if (requested && hasMeetingId) {
+      return openInChrome(requested);
+    }
+    const join = await resolveZoomJoinPage(desktopWatcher);
+    const opened = openInChrome(join.joinUrl);
+    return { ...opened, ...join };
+  });
+
+  ipcMain.handle('overlay-resolve-join', async () => {
+    return resolveZoomJoinPage(desktopWatcher);
   });
 
   ipcMain.handle('overlay-resize-by', (event, { dx, dy }) => {

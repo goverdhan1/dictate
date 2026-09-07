@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   copyTranscript() {
     return ipcRenderer.invoke('transcript-copy');
   },
+  openUrl(url) {
+    return ipcRenderer.invoke('overlay-open-url', { url });
+  },
+  resolveJoin() {
+    return ipcRenderer.invoke('overlay-resolve-join');
+  },
   resizeBy(dx, dy) {
     return ipcRenderer.invoke('overlay-resize-by', { dx, dy });
   }

@@ -25,10 +25,15 @@
     '[class*="cc-text"]',
     '[class*="subtitle-text"]',
     '[class*="transcript-text"]',
+    '[class*="video-caption"]',
+    '[class*="VideoCaption"]',
     '.caption-line span',
     '.captions-box span',
+    '.zm-closed-caption',
     '#live-transcription-subtitle',
     '#live-transcription-subtitle span',
+    '#live-caption',
+    '#live-caption span',
     '[data-testid*="caption"]',
     '[data-testid*="transcript"]'
   ].join(', ');
@@ -42,6 +47,9 @@
     '[class*="closed-caption"]',
     '[class*="transcript-panel"]',
     '[class*="caption-panel"]',
+    '[class*="video-caption"]',
+    '.zm-closed-caption',
+    '#live-caption',
     '#aria-notify-area',
     '[aria-label*="live transcript" i]',
     '[aria-label*="caption" i]',
@@ -96,6 +104,8 @@
     if (UI_NOISE_RE.test(t)) return false;
     if (TOOLBAR_RE.test(t)) return false;
     if (/^[\d\s:APM]+$/i.test(t) && t.length < 12) return false;
+    const utils = window.DictateCaptionUtils;
+    if (utils?.isSpokenCaptionText && !utils.isSpokenCaptionText(t)) return false;
     return true;
   }
 
@@ -362,7 +372,6 @@
   }
 
   function rebuildCaptionsForSend(helpers) {
-    helpers.captionQueue = helpers.captionQueue.filter((e) => e.sent);
     for (const key of [...helpers.seenCaptions]) {
       helpers.seenCaptions.delete(key);
     }

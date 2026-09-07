@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Dictate",
   "description": "Voice dictation helper for ChatGPT, plus live-caption bridge from Teams, Google Meet, Zoom, and Webex to ChatGPT.",
-  "version": "1.8.0",
+  "version": "1.8.7",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "activeTab", "tabs", "webNavigation", "alarms"],
   "host_permissions": [

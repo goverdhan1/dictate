@@ -10,6 +10,7 @@ const {
   similarityKey,
   normalizeAuthor,
   normalizeCaptionText,
+  isSpokenCaptionText,
   formatSendLine,
   formatLines,
   linesRelated,
@@ -95,7 +96,7 @@ class TranscriptStore {
     this.ensure();
     const author = normalizeAuthor(line?.author);
     const text = normalizeCaptionText(line?.text);
-    if (!text || text.length < 2) return null;
+    if (!isSpokenCaptionText(text)) return null;
 
     const last = this.current.lines[this.current.lines.length - 1];
     if (last && last.author === author && last.text === text) return null;

@@ -33,6 +33,58 @@
       .trim();
   }
 
+  /** Zoom / Teams / Meet system toasts — not spoken captions. */
+  const MEETING_ACTIVITY_NOISE_RE = new RegExp(
+    [
+      '^you are (un)?muted( now)?\\.?$',
+      '^you are (the )?host now\\.?$',
+      '^you are viewing .+\'s screen',
+      '.+\\bis the host now\\.?$',
+      '.+\\bhas (joined|left|entered|exited)( the meeting)?\\.?$',
+      '.+\\bstarted screen share',
+      '.+\\bstopped screen share',
+      '^this meeting is being (recorded|transcribed)\\.?$',
+      '^recording (has )?(started|stopped|paused|resumed)\\.?$',
+      '^live transcript(ion)? (has )?(started|stopped)\\.?$',
+      '^captions? are (on|off)\\b',
+      '^captions? (enabled|disabled|started|stopped)\\b',
+      '^(show|hide)( captions?| live transcript)?\\.?$',
+      '^alert\\.?$',
+      '^low network bandwidth\\b',
+      '^unstable (network|connection)\\b',
+      '^video now (started|stopped)\\.?$',
+      '^audio (connected|disconnected)\\.?$',
+      '^waiting for the host',
+      '^host has (joined|left|ended)',
+      '^the host (has )?(ended|removed)',
+      '^please wait(,| for)',
+      '^connecting(\\.{0,3}|…)?$',
+      '^reconnecting(\\.{0,3}|…)?$',
+      '^(mute|unmute|start video|stop video|participants|chat|share|record|leave|end|more|view|settings|reactions|apps|security|invite|copy|search|send|reply)$'
+    ].join('|'),
+    'i'
+  );
+
+  function isMeetingActivityNoise(text) {
+    const t = normalizeCaptionText(text);
+    if (!t) return true;
+    if (MEETING_ACTIVITY_NOISE_RE.test(t)) return true;
+    // Multi-clause Zoom toast blobs: "You are unmuted … Captions are on, alert Hide"
+    if (/(?:^|[.!?]\s+)you are (un)?muted\b/i.test(t)
+      && /\b(host now|left the meeting|captions? are|video now|being transcribed|low network)\b/i.test(t)) {
+      return true;
+    }
+    return false;
+  }
+
+  /** True only for likely spoken caption lines (voices), not meeting chrome. */
+  function isSpokenCaptionText(text) {
+    const t = normalizeCaptionText(text);
+    if (t.length < 2) return false;
+    if (isMeetingActivityNoise(t)) return false;
+    return true;
+  }
+
   function normalizeAuthor(author) {
     return normalizeCaptionText(author);
   }
@@ -109,7 +161,7 @@
   function mergeTranscriptLine(t, next, extras = {}) {
     if (!t || !next?.text) return null;
     const text = normalizeCaptionText(next.text);
-    if (!text) return null;
+    if (!isSpokenCaptionText(text)) return null;
     const author = normalizeAuthor(next.author);
     const platform = next.platform || extras.platform || t.platform || '';
     const source = next.source || extras.source || '';
@@ -216,7 +268,7 @@
     remember(caption) {
       const author = normalizeAuthor(caption?.author);
       const text = normalizeCaptionText(caption?.text);
-      if (!text || text.length < 2) return null;
+      if (!isSpokenCaptionText(text)) return null;
 
       const key = captionKey(author, text);
       const sim = similarityKey(author, text);
@@ -275,6 +327,80 @@
     }
   }
 
+  function parseZoomMeetingId(text, options = {}) {
+    const raw = String(text || '');
+    const allowLoose = options.allowLoose === true;
+
+    const fromPath = raw.match(/zoom\.us\/(?:j|s)\/(\d{9,11})/i)
+      || raw.match(/zoom\.us\/wc\/join\/(\d{9,11})/i)
+      || raw.match(/app\.zoom\.us\/wc\/join\/(\d{9,11})/i)
+      || raw.match(/app\.zoom\.us\/wc\/(\d{9,11})\/join/i)
+      || raw.match(/[?&]confno=(\d{9,11})/i);
+    if (fromPath) return fromPath[1];
+
+    const labeled = raw.match(/(?:confno|meeting[_-\s]?id|meeting\s*id|meeting\s*number)\s*[=:#]?\s*([\d\s-]{9,20})/i);
+    if (labeled) {
+      const digits = labeled[1].replace(/\D/g, '');
+      if (digits.length >= 9 && digits.length <= 11) return digits;
+    }
+
+    const spaced = raw.match(/\bMeeting\s*ID\s*[:=]?\s*(\d{3})\s+(\d{3})\s+(\d{3,4})\b/i)
+      || raw.match(/\b(\d{3})\s+(\d{3})\s+(\d{3,4})\b/);
+    if (spaced && /meeting\s*id|confno/i.test(raw)) {
+      const digits = `${spaced[1]}${spaced[2]}${spaced[3]}`;
+      if (digits.length >= 9 && digits.length <= 11) return digits;
+    }
+
+    // Bare digit runs are often UI noise (timestamps, phone fragments) — only when allowed.
+    if (allowLoose) {
+      const compact = raw.match(/\b(\d{9,11})\b/);
+      return compact ? compact[1] : '';
+    }
+    return '';
+  }
+
+  function parseZoomPasscode(text) {
+    const raw = String(text || '');
+    const fromQuery = raw.match(/[?&]pwd=([^&\s#]+)/i);
+    if (fromQuery) {
+      try { return decodeURIComponent(fromQuery[1]); } catch { return fromQuery[1]; }
+    }
+    const labeled = raw.match(/(?:passcode|password)\s*[=:]?\s*([A-Za-z0-9._-]{4,32})/i);
+    return labeled ? labeled[1] : '';
+  }
+
+  function extractZoomInviteUrl(text) {
+    const raw = String(text || '');
+    const m = raw.match(/https?:\/\/(?:[\w.-]+\.)?zoom\.us\/j\/\d{9,11}[^\s]*/i)
+      || raw.match(/https?:\/\/app\.zoom\.us\/wc\/join\/\d{9,11}[^\s]*/i)
+      || raw.match(/https?:\/\/(?:[\w.-]+\.)?zoom\.us\/wc\/join\/\d{9,11}[^\s]*/i);
+    if (!m) return '';
+    return m[0].replace(/[),.;]+$/, '');
+  }
+
+  function formatZoomMeetingId(meetingId) {
+    const digits = String(meetingId || '').replace(/\D/g, '');
+    if (digits.length === 10) return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+    if (digits.length === 11) return `${digits.slice(0, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`;
+    if (digits.length === 9) return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+    return digits;
+  }
+
+  function buildZoomJoinUrl(options = {}) {
+    const inviteUrl = String(options.inviteUrl || '').trim();
+    if (inviteUrl) return inviteUrl;
+
+    const meetingId = String(options.meetingId || '').replace(/\D/g, '');
+    const passcode = String(options.passcode || '').trim();
+    if (meetingId) {
+      // Prefer /wc/join/{id} — /wc/{id}/join often returns Zoom error 3001 without a valid pwd.
+      let url = `https://app.zoom.us/wc/join/${meetingId}`;
+      if (passcode) url += `?pwd=${encodeURIComponent(passcode)}`;
+      return url;
+    }
+    return 'https://app.zoom.us/wc/join';
+  }
+
   return {
     SEND_CHUNK_CHARS,
     TRANSCRIPT_MAX_LINES,
@@ -282,6 +408,8 @@
     normalizeCaptionText,
     normalizeAuthor,
     bareText,
+    isMeetingActivityNoise,
+    isSpokenCaptionText,
     captionKey,
     similarityKey,
     shouldAutoForward,
@@ -296,6 +424,11 @@
     countUnsent,
     takeUnsentChunkFrom,
     markLinesSent,
-    CaptionQueue
+    CaptionQueue,
+    parseZoomMeetingId,
+    parseZoomPasscode,
+    extractZoomInviteUrl,
+    formatZoomMeetingId,
+    buildZoomJoinUrl
   };
 });

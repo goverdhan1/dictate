@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Dictate",
   "description": "Voice dictation helper for ChatGPT, plus live-caption bridge from Teams, Google Meet, Zoom, and Webex to ChatGPT.",
-  "version": "1.8.0",
+  "version": "1.8.7",
   "browser_specific_settings": {
     "gecko": {
       "id": "dictate@goverdhan1.github.io",

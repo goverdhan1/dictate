@@ -94,7 +94,7 @@
       }
       .status {
         flex-shrink: 0;
-        padding: 4px 12px;
+        padding: 6px 12px;
         font-size: 11px;
         line-height: 1.35;
         color: #f3f2f1;
@@ -102,11 +102,29 @@
         display: none;
         z-index: 2;
       }
-      .status.visible { display: block; }
+      .status.visible { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .status.error {
         background: rgba(185, 28, 28, 0.35);
         color: #fecaca;
       }
+      #status-text { flex: 1; min-width: 0; }
+      #join-btn {
+        flex-shrink: 0;
+        display: none;
+        padding: 4px 10px;
+        height: 24px;
+        color: #fff;
+        background: #2563eb;
+        border: none;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-app-region: no-drag;
+        white-space: nowrap;
+      }
+      .status.has-join #join-btn { display: inline-flex; align-items: center; }
+      #join-btn:hover { background: #1d4ed8; }
       .chatgpt-host {
         flex: 1;
         min-height: 0;
@@ -140,6 +158,15 @@
         color: #6ee7b7;
         margin-left: 6px;
       }
+      .meeting-id {
+        font-size: 10px;
+        font-weight: 600;
+        color: #93c5fd;
+        margin-left: 8px;
+        letter-spacing: 0.02em;
+        display: none;
+      }
+      .meeting-id.visible { display: inline; }
       .resize-handle {
         position: absolute;
         right: 0;
@@ -169,14 +196,17 @@
   <body>
     <div class="panel">
       <div class="header">
-        <span class="title">ChatGPT <span class="badge" id="stealth-badge">protected</span></span>
+        <span class="title">ChatGPT <span class="badge" id="stealth-badge">protected</span><span class="meeting-id" id="meeting-id"></span></span>
         <div class="header-actions">
           <button id="transcript-btn" type="button" title="Copy the full meeting transcript">Transcript</button>
           <button id="send-btn" type="button" title="Send saved unsent captions to ChatGPT">Send</button>
           <button id="hide-btn" type="button" title="Hide">×</button>
         </div>
       </div>
-      <div class="status" id="status"></div>
+      <div class="status" id="status">
+        <span id="status-text"></span>
+        <button id="join-btn" type="button">Open Zoom in Chrome</button>
+      </div>
       <div class="chatgpt-host">
         <div class="chatgpt-loading" id="chatgpt-loading">Loading ChatGPT…</div>
         <webview

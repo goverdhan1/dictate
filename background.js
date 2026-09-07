@@ -2,6 +2,54 @@ if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'u
   globalThis.chrome = globalThis.browser;
 }
 
+try {
+  importScripts('caption-utils.js');
+} catch {
+  /* Firefox may already inject shared utils differently */
+}
+
+const ZoomJoin = globalThis.DictateCaptionUtils || {};
+const buildZoomJoinUrl = ZoomJoin.buildZoomJoinUrl
+  || ((opts = {}) => {
+    const id = String(opts.meetingId || '').replace(/\D/g, '');
+    const pwd = String(opts.passcode || '').trim();
+    if (!id) return 'https://app.zoom.us/wc/join';
+    return pwd
+      ? `https://app.zoom.us/wc/${id}/join?pwd=${encodeURIComponent(pwd)}`
+      : `https://app.zoom.us/wc/${id}/join`;
+  });
+const parseZoomMeetingId = ZoomJoin.parseZoomMeetingId
+  || ((text) => {
+    const m = String(text || '').match(/\/wc\/(\d{9,11})\//) || String(text || '').match(/\b(\d{9,11})\b/);
+    return m ? m[1] : '';
+  });
+const parseZoomPasscode = ZoomJoin.parseZoomPasscode
+  || ((text) => {
+    const m = String(text || '').match(/[?&]pwd=([^&]+)/i);
+    return m ? decodeURIComponent(m[1]) : '';
+  });
+
+function zoomJoinFromTabs(tabs) {
+  for (const tab of tabs || []) {
+    const url = tab?.url || '';
+    const id = parseZoomMeetingId(url);
+    if (id) {
+      return {
+        joinUrl: buildZoomJoinUrl({ meetingId: id, passcode: parseZoomPasscode(url) }),
+        joinLabel: `Open Zoom ${id} in Chrome`,
+        meetingId: id,
+        passcode: parseZoomPasscode(url)
+      };
+    }
+  }
+  return {
+    joinUrl: 'https://app.zoom.us/wc/join',
+    joinLabel: 'Open Zoom in Chrome',
+    meetingId: '',
+    passcode: ''
+  };
+}
+
 const CHATGPT_URL_PATTERNS = [
   'https://chatgpt.com/*',
   'https://www.chatgpt.com/*',
@@ -72,7 +120,7 @@ const MEETING_PLATFORMS = [
       if (/zoom\.us/i.test(u)) return 1;
       return 2;
     },
-    tabError: 'Open Zoom in the browser (zoom.us web client), or use the Zoom desktop app with Dictate Desktop'
+    tabError: 'Open Zoom in Chrome (https://app.zoom.us/wc/join), enable live captions, then click Send'
   },
   {
     id: 'webex',
@@ -328,11 +376,13 @@ async function sendToMeetingTab(action, preferredPlatformId = null) {
   if (isSendQueue) {
     const tabs = await findAllMeetingTabs(preferredPlatformId || null);
     if (!tabs.length) {
+      const join = zoomJoinFromTabs([]);
       return {
         success: false,
         sent: false,
-        error: 'Open Zoom in Chrome (zoom.us/wc) — the desktop app cannot be bridged',
-        status: 'Open meeting in Chrome'
+        error: 'Join the meeting in Chrome — Zoom desktop cannot send captions. Open Zoom Web Client with your Meeting ID, then click Send.',
+        status: 'Open meeting in Chrome',
+        ...join
       };
     }
 
@@ -350,30 +400,36 @@ async function sendToMeetingTab(action, preferredPlatformId = null) {
       if (result) lastResult = result;
     }
 
+    const join = zoomJoinFromTabs(sortedTabs);
     return lastResult || {
       success: false,
       sent: false,
-      error: 'Meeting not ready in Chrome — join the meeting in your browser tab',
-      status: 'Join meeting in Chrome'
+      error: 'Meeting not ready in Chrome — join from this link (Meeting ID included when known), enable live captions, then click Send.',
+      status: 'Join meeting in Chrome',
+      ...join
     };
   }
 
   const { tab, platform } = await findMeetingTab(preferredPlatformId);
   if (!tab?.id || !platform) {
+    const join = zoomJoinFromTabs([]);
     return {
       success: false,
       sent: false,
       error: 'Open your meeting in Chrome with live captions enabled',
-      status: 'Open meeting in Chrome'
+      status: 'Open meeting in Chrome',
+      ...join
     };
   }
 
   const result = await messageMeetingTab(tab.id, { action }, platform);
+  const join = zoomJoinFromTabs([tab]);
   return result || {
     success: false,
     sent: false,
-    error: platform.tabError || 'Meeting not ready in Chrome — join the meeting in your browser tab',
-    status: 'Join meeting in Chrome'
+    error: platform.tabError || 'Meeting not ready in Chrome — join with your Meeting ID, enable live captions, then click Send.',
+    status: 'Join meeting in Chrome',
+    ...join
   };
 }
 

@@ -5,7 +5,16 @@
  */
 const { spawn } = require('child_process');
 const path = require('path');
-const { CaptionQueue, shouldAutoForward, normalizeCaptionText } = require('./CaptionQueue');
+const {
+  CaptionQueue,
+  shouldAutoForward,
+  normalizeCaptionText,
+  isSpokenCaptionText,
+  parseZoomMeetingId,
+  parseZoomPasscode,
+  buildZoomJoinUrl,
+  formatZoomMeetingId
+} = require('./CaptionQueue');
 
 const POLL_MS = 900;
 const STATUS_THROTTLE_MS = 4000;
@@ -26,11 +35,12 @@ function nativeScriptPath(name) {
 }
 
 class DesktopCaptionWatcher {
-  constructor({ appState, onStatus, onAutoForward, onTranscript, transcriptStore } = {}) {
+  constructor({ appState, onStatus, onAutoForward, onTranscript, onMeetingDetails, transcriptStore } = {}) {
     this.appState = appState;
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
     this.onAutoForward = typeof onAutoForward === 'function' ? onAutoForward : async () => {};
     this.onTranscript = typeof onTranscript === 'function' ? onTranscript : () => {};
+    this.onMeetingDetails = typeof onMeetingDetails === 'function' ? onMeetingDetails : () => {};
     this.transcriptStore = transcriptStore || null;
     this.queue = new CaptionQueue();
     this.child = null;
@@ -42,6 +52,118 @@ class DesktopCaptionWatcher {
     this.activePlatform = '';
     this.lastCaptionAt = 0;
     this.lastCaptionFp = '';
+    this.meetingId = '';
+    this.meetingPasscode = '';
+    this.meetingIdSource = '';
+    // Do not restore lastZoomMeetingId — a previous wrong scrape was persisting across restarts.
+  }
+
+  clearMeetingDetails() {
+    this.meetingId = '';
+    this.meetingPasscode = '';
+    this.meetingIdSource = '';
+    try {
+      this.appState?.set?.('lastZoomMeetingId', '');
+      this.appState?.set?.('lastZoomPasscode', '');
+    } catch { /* ignore */ }
+    this.onMeetingDetails({
+      platform: 'zoom',
+      meetingId: '',
+      meetingIdDisplay: '',
+      passcode: '',
+      joinUrl: buildZoomJoinUrl({})
+    });
+  }
+
+  rememberMeetingDetails(meetingId, passcode, source = '') {
+    const id = String(meetingId || '').replace(/\D/g, '');
+    const pwd = String(passcode || '').trim();
+    const src = String(source || '').toLowerCase();
+    // Rank: confno (live Zoom process) > invite/url > labeled title > anything else.
+    const rank = (s) => (s === 'confno' ? 3 : (s === 'invite' || s === 'url' || s === 'cmdline') ? 2 : s === 'title' || s === 'labeled' ? 1 : 0);
+    let changed = false;
+
+    if (id && id.length >= 9 && id.length <= 11) {
+      const incomingRank = rank(src);
+      const currentRank = rank(this.meetingIdSource);
+      const canReplace = !this.meetingId
+        || id === this.meetingId
+        || incomingRank > currentRank
+        || (incomingRank >= 2 && this.meetingIdSource !== 'confno');
+      if (canReplace && id !== this.meetingId) {
+        this.meetingId = id;
+        this.meetingIdSource = src || this.meetingIdSource || 'unknown';
+        changed = true;
+      } else if (id === this.meetingId && src && rank(src) > currentRank) {
+        this.meetingIdSource = src;
+      }
+    }
+    if (pwd && pwd !== this.meetingPasscode) {
+      this.meetingPasscode = pwd;
+      changed = true;
+    }
+    if (changed && this.meetingId) {
+      this.onMeetingDetails({
+        platform: 'zoom',
+        meetingId: this.meetingId,
+        meetingIdDisplay: formatZoomMeetingId(this.meetingId),
+        passcode: this.meetingPasscode,
+        joinUrl: this.getZoomJoinUrl(),
+        source: this.meetingIdSource
+      });
+    }
+  }
+
+  getZoomJoinUrl() {
+    return buildZoomJoinUrl({
+      meetingId: this.meetingId,
+      passcode: this.meetingPasscode
+    });
+  }
+
+  async probeZoomMeetingDetails() {
+    if (process.platform !== 'win32') {
+      return { meetingId: this.meetingId, passcode: this.meetingPasscode };
+    }
+    return new Promise((resolve) => {
+      const ps = `
+$ErrorActionPreference = 'SilentlyContinue'
+$id = ''; $pwd = ''; $src = ''
+foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
+  $cmd = [string]$p.CommandLine
+  if (-not $cmd) { continue }
+  if ($cmd -match '(?i)[?&]confno=(\\d{9,11})\\b') {
+    $id = $Matches[1]
+    $src = 'confno'
+    if ($cmd -match '(?i)[?&]pwd=([^&\\s#]+)') {
+      try { $pwd = [uri]::UnescapeDataString($Matches[1]) } catch { $pwd = $Matches[1] }
+    }
+    break
+  }
+}
+@{ meetingId = $id; passcode = $pwd; meetingSource = $src } | ConvertTo-Json -Compress
+`;
+      const child = spawn('powershell.exe', [
+        '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', ps
+      ], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch { /* ignore */ }
+        resolve({ meetingId: this.meetingId, passcode: this.meetingPasscode });
+      }, 4000);
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.on('close', () => {
+        clearTimeout(timer);
+        try {
+          const parsed = JSON.parse(String(out || '').trim() || '{}');
+          if (parsed.meetingId) {
+            this.rememberMeetingDetails(parsed.meetingId, parsed.passcode, parsed.meetingSource || 'confno');
+          }
+        } catch { /* ignore */ }
+        resolve({ meetingId: this.meetingId, passcode: this.meetingPasscode });
+      });
+    });
   }
 
   start() {
@@ -99,12 +221,23 @@ class DesktopCaptionWatcher {
     if (!force && text === this.lastStatus && now - this.lastStatusAt < STATUS_THROTTLE_MS) return;
     this.lastStatus = text;
     this.lastStatusAt = now;
-    this.onStatus({ status: text, platform: this.activePlatform, detected: this.detected });
+    this.onStatus({
+      status: text,
+      platform: this.activePlatform,
+      detected: this.detected,
+      meetingId: this.meetingId || '',
+      meetingIdDisplay: this.meetingId ? formatZoomMeetingId(this.meetingId) : ''
+    });
   }
 
   ingest(payload) {
     const detected = asArray(payload?.detected).map((p) => String(p || '').toLowerCase()).filter(Boolean);
     if (detected.length) this.detected = detected;
+
+    const meetingId = String(payload?.meetingId || '').replace(/\D/g, '');
+    const passcode = String(payload?.passcode || '').trim();
+    const source = String(payload?.meetingSource || '').trim();
+    if (meetingId) this.rememberMeetingDetails(meetingId, passcode, source || 'confno');
 
     this.transcriptStore?.ensure?.();
     const platform = String(payload?.platform || '').toLowerCase();
@@ -124,6 +257,7 @@ class DesktopCaptionWatcher {
     for (const item of captions) {
       const author = item?.author || '';
       const text = item?.text || item || '';
+      if (!isSpokenCaptionText(text)) continue;
       this.onTranscript({
         at: Date.now(),
         author,

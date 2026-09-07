@@ -232,12 +232,18 @@ class BridgeRouter {
         ? (payload.answer || payload.status)
         : '');
     const status = payload?.status && !payload?.streaming ? payload.status : '';
-    if (!error && !status) return;
+    const meetingId = payload?.meetingId || '';
+    const meetingIdDisplay = payload?.meetingIdDisplay || '';
+    if (!error && !status && !meetingId) return;
 
     overlay.webContents.send('overlay-data', {
       error: error || '',
       status: status || '',
-      success: !error
+      success: !error,
+      joinUrl: payload?.joinUrl || '',
+      joinLabel: payload?.joinLabel || '',
+      meetingId,
+      meetingIdDisplay
     });
   }
 
@@ -315,7 +321,12 @@ class BridgeRouter {
         if (message.sent === false || message.success === false) {
           const err = message.error || message.status;
           if (err) {
-            this.relayToOverlay({ error: err, success: false });
+            this.relayToOverlay({
+              error: err,
+              success: false,
+              joinUrl: message.joinUrl,
+              joinLabel: message.joinLabel
+            });
           }
         }
         return { success: true };

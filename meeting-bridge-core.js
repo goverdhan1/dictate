@@ -40,7 +40,11 @@
     mergeTranscriptLine,
     takeUnsentChunkFrom,
     markLinesSent,
-    SEND_CHUNK_CHARS
+    SEND_CHUNK_CHARS,
+    isSpokenCaptionText,
+    parseZoomMeetingId,
+    parseZoomPasscode,
+    buildZoomJoinUrl
   } = captionUtils;
 
   const DESKTOP_BRIDGE = 'http://127.0.0.1:38473';
@@ -310,7 +314,7 @@
     function rememberCaption(caption) {
       const author = normalizeAuthor(caption?.author);
       const text = normalizeCaptionText(caption?.text);
-      if (!text) return null;
+      if (!isSpokenCaptionText(text)) return null;
 
       const key = captionKey(author, text);
       const sim = similarityKey(author, text);
@@ -327,9 +331,14 @@
         }
 
         if (existing.sent) {
-          seenCaptions.add(key);
-          seenCaptions.add(sim);
-          return null;
+          const existingBare = bareText(existing.text);
+          const isGrowth = bare.startsWith(existingBare) || existingBare.startsWith(bare);
+          if (isGrowth) {
+            seenCaptions.add(key);
+            seenCaptions.add(sim);
+            return null;
+          }
+          continue;
         }
 
         if (text.length > existing.text.length) {
@@ -902,16 +911,29 @@
         const stored = await flushStoredTranscript();
         const chunk = takeUnsentChunkFrom(stored.lines, SEND_CHUNK_CHARS);
         let unsent = chunk.lines;
+        if (!unsent.length) {
+          unsent = getUnsentCaptions();
+        }
 
         if (!unsent.length) {
-          updateStatus('No unsent captions — new lines will queue here');
-          return { success: false, sent: false, status: lastStatusText };
+          updateStatus('No new captions yet — turn on live captions and wait for speech');
+          return {
+            success: false,
+            sent: false,
+            status: lastStatusText,
+            error: 'No new captions yet — in the Chrome meeting, turn on Captions / Live Transcript, wait for speech, then click Send'
+          };
         }
 
         let body = collapseDuplicatedPayload(unsent.map((c) => formatSendLine(c)).filter(Boolean).join('\n'));
         if (!body.trim()) {
-          updateStatus('No unsent captions — new lines will queue here');
-          return { success: false, sent: false, status: lastStatusText };
+          updateStatus('No new captions yet — turn on live captions and wait for speech');
+          return {
+            success: false,
+            sent: false,
+            status: lastStatusText,
+            error: 'No new captions yet — in the Chrome meeting, turn on Captions / Live Transcript, wait for speech, then click Send'
+          };
         }
 
         const lineCount = unsent.length;
@@ -1150,6 +1172,12 @@
         return false;
       }
       if (matchesAction(message.action, STATUS_ACTIONS)) {
+        const pageUrl = String(location?.href || '');
+        const meetingId = parseZoomMeetingId?.(pageUrl) || '';
+        const passcode = parseZoomPasscode?.(pageUrl) || '';
+        const joinUrl = config.id === 'zoom'
+          ? (buildZoomJoinUrl?.({ meetingId, passcode }) || 'https://app.zoom.us/wc/join')
+          : '';
         sendResponse({
           success: true,
           status: lastStatusText || 'Idle',
@@ -1157,7 +1185,11 @@
           inMeeting: isInMeeting(),
           platform: config.id,
           unsentCount: getUnsentCaptions().length,
-          captionsVisible: isCaptionsUiVisible()
+          captionsVisible: isCaptionsUiVisible(),
+          meetingId,
+          passcode,
+          joinUrl,
+          joinLabel: meetingId ? `Open Zoom ${meetingId} in Chrome` : 'Open Zoom in Chrome'
         });
         return false;
       }

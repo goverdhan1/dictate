@@ -90,7 +90,7 @@ openMeetBtn.addEventListener('click', () => {
 });
 
 openZoomBtn.addEventListener('click', () => {
-  chrome.tabs.create({ url: 'https://zoom.us/wc/join' });
+  chrome.tabs.create({ url: 'https://app.zoom.us/wc/join' });
 });
 
 openWebexBtn.addEventListener('click', () => {
