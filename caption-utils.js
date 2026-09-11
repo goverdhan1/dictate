@@ -105,13 +105,8 @@
     return `${normalizeAuthor(author).toLowerCase()}::${bareText(text)}`;
   }
 
-  function shouldAutoForward(text, settings) {
-    const trimmed = String(text || '').trim();
-    if (!trimmed || settings?.autoForwardMode === 'off') return false;
-    if (settings?.autoForwardMode === 'questions') return /\?\s*$/.test(trimmed);
-    if (settings?.autoForwardMode === 'sentences') {
-      return /[.!?]\s*$/.test(trimmed) && trimmed.length >= 8;
-    }
+  function shouldAutoForward(_text, _settings) {
+    // Manual Send only — never auto-forward captions to ChatGPT.
     return false;
   }
 

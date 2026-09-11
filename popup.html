@@ -14,9 +14,11 @@
       .meet { background: #1a73e8; }
       .zoom { background: #2d8cff; }
       .webex { background: #00a0df; }
+      .desktop { background: #0f766e; }
       .row { display: flex; gap: 6px; }
       .row button { flex: 1; margin-top: 6px; font-size: 12px; padding: 6px; }
       p { font-size: 11px; color: #605e5c; margin: 8px 0 0; line-height: 1.4; }
+      #desktop-status { min-height: 1.2em; margin-top: 4px; }
       hr { border: none; border-top: 1px solid #e1dfdd; margin: 10px 0; }
     </style>
   </head>
@@ -26,28 +28,15 @@
       <input type="checkbox" id="enabled" /> Enable ChatGPT auto-send
     </label>
     <label>
-      <input type="checkbox" id="bridgeEnabled" checked /> Enable meeting→ChatGPT bridge
-    </label>
-    <label>
       <input type="checkbox" id="autoEnableCaptions" checked /> Auto-enable live captions
-    </label>
-    <label>
-      Auto-forward to ChatGPT
-      <select id="autoForwardMode">
-        <option value="off">Manual only</option>
-        <option value="questions">Questions (?)</option>
-        <option value="sentences">Complete sentences (. ! ?)</option>
-      </select>
-    </label>
-    <label>
-      Custom prefix
-      <input type="text" id="forwardPrefix" placeholder="(optional) leave empty for no prefix" />
     </label>
     <label>
       <input type="checkbox" id="showAnswerOverlay" checked /> Show ChatGPT answers on overlay
     </label>
 
     <button class="chatgpt" id="open-chatgpt">Open ChatGPT</button>
+    <button class="desktop" id="start-desktop">Start Dictate Desktop</button>
+    <p id="desktop-status"></p>
     <div class="row">
       <button class="teams" id="open-teams">Teams</button>
       <button class="meet" id="open-meet">Meet</button>

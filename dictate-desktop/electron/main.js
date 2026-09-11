@@ -3,7 +3,7 @@ const path = require('path');
 const { AppState } = require('./AppState');
 const {
   createOverlayWindow,
-  createSettingsWindow,
+  showSettingsWindow,
   showOverlayWindow
 } = require('./WindowHelper');
 const { setupIpc } = require('./ipcHandlers');
@@ -12,12 +12,19 @@ const { BridgeServer } = require('./BridgeServer');
 const { DesktopCaptionWatcher } = require('./DesktopCaptionWatcher');
 const { TranscriptStore } = require('./TranscriptStore');
 
+const PROTOCOL = 'dictate';
+
 if (process.platform === 'win32') {
   try {
     if (require('electron-squirrel-startup')) app.quit();
   } catch {
     /* optional dev dependency */
   }
+}
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
 }
 
 const appState = new AppState();
@@ -41,18 +48,25 @@ const desktopWatcher = new DesktopCaptionWatcher({
       joinLabel: payload.meetingId ? `Open Zoom ${payload.meetingId} in Chrome` : 'Open Zoom in Chrome'
     });
   },
-  onAutoForward: (text) => bridge.forwardToChatGPT(text),
   onTranscript: (line) => transcriptStore.append(line),
   transcriptStore
 });
 let tray = null;
 
-function openSettings() {
-  if (!appState.settingsWindow || appState.settingsWindow.isDestroyed()) {
-    createSettingsWindow(appState);
-  } else {
-    appState.settingsWindow.focus();
+function registerDictateProtocol() {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
+        path.resolve(process.argv[1])
+      ]);
+      return;
+    }
   }
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+function openSettings() {
+  showSettingsWindow(appState);
 }
 
 function showOrCreateOverlay() {
@@ -61,6 +75,18 @@ function showOrCreateOverlay() {
     return;
   }
   showOverlayWindow(appState);
+}
+
+bridge.onShowOverlay = () => showOrCreateOverlay();
+
+if (gotTheLock) {
+  app.on('second-instance', () => {
+    if (app.isReady()) showOrCreateOverlay();
+  });
+  app.on('open-url', (event) => {
+    event.preventDefault();
+    if (app.isReady()) showOrCreateOverlay();
+  });
 }
 
 function createTray() {
@@ -98,7 +124,7 @@ function buildMenu() {
         {
           label: 'Toggle Undetectable Mode',
           type: 'checkbox',
-          checked: appState.isUndetectable(),
+          checked: true,
           click: (item) => {
             appState.setUndetectable(item.checked);
             const { refreshUndetectable } = require('./WindowHelper');
@@ -131,6 +157,9 @@ function wireChatGPTInjection(guestWebContents) {
 }
 
 app.whenReady().then(async () => {
+  if (!gotTheLock) return;
+
+  registerDictateProtocol();
   Menu.setApplicationMenu(buildMenu());
   createTray();
 

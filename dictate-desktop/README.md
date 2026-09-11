@@ -30,7 +30,6 @@ Replies stay in the ChatGPT UI. Status messages (sent count, errors) appear in t
 Tray or **Dictate → Settings**:
 
 - **Undetectable Mode** — exclude the overlay from screen capture when the OS allows it.
-- **Enable meeting→ChatGPT bridge** — stop forwarding if you only want the overlay.
 - **Meeting transcript** — live preview, **Copy**, **Export…**, **End call**.
 
 **End call** writes `transcripts/YYYY-MM-DD-HHmm.txt` and starts a new `current.json`. It does not quit the meeting app.
@@ -69,8 +68,10 @@ On macOS, grant **Accessibility** to Dictate (or to Terminal / Electron when run
 
 ## Undetectable Mode
 
-- **Windows 10 19041+:** `setContentProtection(true)` → DWM `WDA_EXCLUDEFROMCAPTURE`
+- **Windows 10 19041+:** `setContentProtection(true)` plus `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` so Teams / Zoom screen share omit the overlay. Affinity is re-applied on show/focus and kept alive while the overlay is visible (opacity flashes that cleared protection were removed).
 - **macOS:** `NSWindowSharingNone` (ScreenCaptureKit on macOS 15+ may still capture the overlay)
+
+**Undetectable Mode is on by default.** Restart Dictate Desktop after updating, then confirm with a short Teams screen share of the desktop — the overlay should not appear for attendees.
 
 ## Build installers
 

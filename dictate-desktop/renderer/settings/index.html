@@ -41,21 +41,22 @@
   </head>
   <body>
     <h2>Dictate Desktop</h2>
+    <h3>Capture protection</h3>
     <label>
       <input type="checkbox" id="undetectable" checked />
-      Undetectable Mode (exclude overlay from screen capture)
+      <strong>Undetectable Mode</strong> — exclude overlay from screen capture (Teams / Zoom)
     </label>
-    <label>
-      <input type="checkbox" id="bridgeEnabled" checked />
-      Enable meeting→ChatGPT bridge
-    </label>
+    <p class="note" id="undetectable-status">Loading…</p>
     <p class="note">
       Captions work from the Teams, Zoom, Webex, and Google Meet <strong>desktop / PWA windows</strong>
       (turn on live captions, or press Win+Ctrl+L on Windows)
       and from browser meetings with the Dictate extension.
     </p>
     <p class="note">
-      Windows: overlay uses DWM exclude-from-capture when Undetectable Mode is on.
+      Pick ChatGPT, Claude, Cursor Agents, Gemini, Microsoft Copilot, Perplexity, or Grok from the overlay header. Sign in inside the overlay, then use Send to drop captions into that chat.
+    </p>
+    <p class="note">
+      Windows: Undetectable Mode is on by default and excludes the overlay from screen capture (Teams/Zoom). Restart Dictate Desktop after updates, then share your desktop briefly to confirm attendees do not see the overlay.
       macOS 15+ Teams/Zoom using ScreenCaptureKit may still capture the overlay.
     </p>
 

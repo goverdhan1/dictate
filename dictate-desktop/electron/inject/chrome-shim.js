@@ -37,7 +37,7 @@
       if (message?.action === 'receiveFromTeams' && messageListeners.length === 0) {
         deliver({
           success: false,
-          error: 'ChatGPT bridge not ready — sign in and open a chat in Dictate Desktop'
+          error: 'Agent bridge not ready — sign in and open a chat in Dictate Desktop'
         });
         return true;
       }

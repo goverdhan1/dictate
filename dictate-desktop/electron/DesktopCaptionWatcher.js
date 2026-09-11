@@ -1,13 +1,12 @@
 /**
  * Reads on-screen captions from Teams / Zoom / Webex / Meet desktop windows.
  * Windows: PowerShell UI Automation. macOS: System Events / Accessibility.
- * Appends every unique line to TranscriptStore; CaptionQueue is only for auto-forward.
+ * Appends every unique line to TranscriptStore. Send reads unsent transcript lines.
  */
 const { spawn } = require('child_process');
 const path = require('path');
 const {
   CaptionQueue,
-  shouldAutoForward,
   normalizeCaptionText,
   isSpokenCaptionText,
   parseZoomMeetingId,
@@ -35,10 +34,9 @@ function nativeScriptPath(name) {
 }
 
 class DesktopCaptionWatcher {
-  constructor({ appState, onStatus, onAutoForward, onTranscript, onMeetingDetails, transcriptStore } = {}) {
+  constructor({ appState, onStatus, onTranscript, onMeetingDetails, transcriptStore } = {}) {
     this.appState = appState;
     this.onStatus = typeof onStatus === 'function' ? onStatus : () => {};
-    this.onAutoForward = typeof onAutoForward === 'function' ? onAutoForward : async () => {};
     this.onTranscript = typeof onTranscript === 'function' ? onTranscript : () => {};
     this.onMeetingDetails = typeof onMeetingDetails === 'function' ? onMeetingDetails : () => {};
     this.transcriptStore = transcriptStore || null;
@@ -195,15 +193,12 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
     return this.queue.getUnsent();
   }
 
-  async flushToChatGPT(bridge) {
+    async flushToChatGPT(bridge) {
     const unsent = this.queue.getUnsent();
     if (!unsent.length) return null;
 
-    const settings = this.appState?.getAll?.() || {};
-    const prefix = settings.forwardPrefix || '';
     const batch = this.queue.formatBatch(unsent);
-    const payload = prefix ? prefix + batch : batch;
-    const result = await bridge.forwardToChatGPT(payload);
+    const result = await bridge.forwardToChatGPT(batch);
     if (result?.success) this.queue.markSent(unsent);
     return {
       sent: !!result?.success,
@@ -253,7 +248,6 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
     this.lastCaptionFp = fp;
 
     let added = 0;
-    const newly = [];
     for (const item of captions) {
       const author = item?.author || '';
       const text = item?.text || item || '';
@@ -277,7 +271,6 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
       });
       if (entry) {
         added += 1;
-        newly.push(entry);
         this.lastCaptionAt = Date.now();
         this.activePlatform = platform || this.activePlatform;
       }
@@ -299,20 +292,6 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
     }
 
     if (!added) return;
-
-    const settings = this.appState?.getAll?.() || {};
-    if (settings.bridgeEnabled === false) return;
-    for (const entry of newly) {
-      if (!shouldAutoForward(entry.text, settings)) continue;
-      const prefix = settings.forwardPrefix || '';
-      const line = entry.author ? `${entry.author}: ${entry.text}` : entry.text;
-      this.onAutoForward(prefix ? prefix + line : line).then((result) => {
-        if (result?.success) {
-          this.queue.markSent([entry]);
-          this.transcriptStore?.markSent([entry]);
-        }
-      }).catch(() => {});
-    }
   }
 
   handleLine(line) {

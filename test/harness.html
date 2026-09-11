@@ -36,7 +36,7 @@
   <div class="log" id="log"></div>
 
   <script>
-    const settings = { autoForwardMode: 'sentences', forwardPrefix: '' };
+    const settings = { autoForwardMode: 'sentences' };
     const logEl = document.getElementById('log');
     const captionArea = document.getElementById('caption-area');
     const platformSelect = document.getElementById('platform');
@@ -146,7 +146,7 @@
         seenCaptions.add(k);
         log(`Captured: ${author || 'Speaker'} — "${text}"`);
         if (shouldAutoForward(text, settings)) {
-          const payload = settings.forwardPrefix + formatMessage(author, text);
+          const payload = formatMessage(author, text);
           log(`→ WOULD FORWARD TO CHATGPT: ${payload}`);
         } else {
           log(`→ skipped (auto-forward mode: ${settings.autoForwardMode})`);

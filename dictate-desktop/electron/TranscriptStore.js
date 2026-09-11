@@ -172,7 +172,7 @@ class TranscriptStore {
     const marked = markLinesSent(this.current.lines, entries);
     if (marked) {
       this.recountUnsent();
-      this.scheduleSave();
+      this.saveNow();
     }
     return marked;
   }

@@ -38,7 +38,34 @@
         flex-shrink: 0;
         z-index: 2;
       }
-      .title { font-weight: 600; font-size: 12px; flex-shrink: 0; }
+      .title {
+        font-weight: 600;
+        font-size: 12px;
+        flex-shrink: 1;
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .agent-select {
+        -webkit-app-region: no-drag;
+        appearance: none;
+        background-color: rgba(255,255,255,.08);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23f3f2f1' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        color: #f3f2f1;
+        border: 1px solid rgba(255,255,255,.22);
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 22px 3px 8px;
+        max-width: 168px;
+        cursor: pointer;
+      }
+      .agent-select:hover { background-color: rgba(255,255,255,.12); }
+      .agent-select:focus { outline: 1px solid rgba(147,197,253,.7); }
+      .agent-select option { color: #111; background: #fff; }
       .header-actions {
         display: flex;
         align-items: center;
@@ -157,6 +184,31 @@
         font-size: 10px;
         color: #6ee7b7;
         margin-left: 6px;
+        cursor: pointer;
+        border: 1px solid rgba(110, 231, 183, 0.35);
+        border-radius: 999px;
+        padding: 1px 7px;
+        -webkit-app-region: no-drag;
+      }
+      .badge.off {
+        color: #fca5a5;
+        border-color: rgba(252, 165, 165, 0.4);
+      }
+      .badge:hover {
+        background: rgba(255,255,255,.08);
+      }
+      #settings-btn {
+        padding: 5px 10px;
+        height: 28px;
+        color: #f3f2f1;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      #settings-btn:hover {
+        background: rgba(255,255,255,.1);
       }
       .meeting-id {
         font-size: 10px;
@@ -196,10 +248,17 @@
   <body>
     <div class="panel">
       <div class="header">
-        <span class="title">ChatGPT <span class="badge" id="stealth-badge">protected</span><span class="meeting-id" id="meeting-id"></span></span>
+        <span class="title">
+          <select id="agent-select" class="agent-select" title="Load ChatGPT, Claude, Cursor Agents, Gemini, Copilot, Perplexity, or Grok" aria-label="AI agent">
+            <option value="chatgpt" selected>ChatGPT</option>
+          </select>
+          <button type="button" class="badge" id="stealth-badge" title="Toggle Undetectable Mode — hide overlay from Teams/Zoom screen share">protected</button>
+          <span class="meeting-id" id="meeting-id"></span>
+        </span>
         <div class="header-actions">
+          <button id="settings-btn" type="button" title="Open Dictate Settings">Settings</button>
           <button id="transcript-btn" type="button" title="Copy the full meeting transcript">Transcript</button>
-          <button id="send-btn" type="button" title="Send saved unsent captions to ChatGPT">Send</button>
+          <button id="send-btn" type="button" title="Send saved unsent captions to the selected agent">Send</button>
           <button id="hide-btn" type="button" title="Hide">×</button>
         </div>
       </div>
@@ -212,7 +271,7 @@
         <webview
           id="chatgpt-frame"
           class="chatgpt-frame"
-          src="https://chatgpt.com"
+          src="about:blank"
           allowpopups
         ></webview>
       </div>

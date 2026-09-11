@@ -280,27 +280,12 @@
 
     async function getSettings() {
       try {
-        const data = await chrome.storage.local.get({
-          bridgeEnabled: true,
-          autoEnableCaptions: true,
-          autoForwardMode: 'questions',
-          autoForwardQuestions: true,
-          forwardPrefix: ''
+        return await chrome.storage.local.get({
+          autoEnableCaptions: true
         });
-        if (data.autoForwardMode == null) {
-          data.autoForwardMode = data.autoForwardQuestions === false ? 'off' : 'questions';
-        }
-        if (data.forwardPrefix === 'Answer this meeting question: ' || data.forwardPrefix === 'Answer this meeting question:') {
-          data.forwardPrefix = '';
-          chrome.storage.local.set({ forwardPrefix: '' });
-        }
-        return data;
       } catch {
         return {
-          bridgeEnabled: true,
-          autoEnableCaptions: true,
-          autoForwardMode: 'questions',
-          forwardPrefix: ''
+          autoEnableCaptions: true
         };
       }
     }
@@ -548,18 +533,10 @@
         return { success: false, error: 'empty' };
       }
 
-      const settings = await getSettings();
-      if (!settings.bridgeEnabled && !force) {
-        updateStatus('Bridge disabled in popup');
-        return { success: false, error: 'bridge-disabled' };
-      }
-
-      const payload = settings.forwardPrefix
-        ? settings.forwardPrefix + formatMessage(source, author, trimmed)
-        : formatMessage(source, author, trimmed);
+      const payload = formatMessage(source, author, trimmed);
 
       if (!force && payload === lastForwarded) {
-        log('Skipping duplicate auto-forward');
+        log('Skipping duplicate forward');
         return { success: false, error: 'duplicate' };
       }
       lastForwarded = payload;
@@ -665,7 +642,6 @@
       captionScanInFlight = true;
       try {
         if (config.hideCaptionOverlay) config.hideCaptionOverlay();
-        const beforeCount = captionQueue.length;
         config.collectCaptionsFromDom(bridgeHelpers);
 
         if (captionQueue.length > 400) {
@@ -677,22 +653,6 @@
           const latest = unsent[unsent.length - 1];
           updateStatus(`${unsent.length} new · ${latest.text.slice(0, 40)}${latest.text.length > 40 ? '…' : ''}`);
         }
-
-        if (!bridgeActive) return;
-        if (captionQueue.length <= beforeCount) return;
-
-        const newlyAdded = captionQueue.slice(beforeCount);
-        getSettings().then((settings) => {
-          for (const entry of newlyAdded) {
-            if (entry.sent || !shouldAutoForward(entry.text, settings)) continue;
-            forwardToChatGPT(captionSourceLabel, entry.author, entry.text).then((result) => {
-              if (result?.success) {
-                markCaptionsSent([entry]);
-                markStoredTranscriptSent([entry]);
-              }
-            });
-          }
-        });
       } finally {
         captionScanInFlight = false;
       }
@@ -748,16 +708,7 @@
         log('Mic captured:', finalText);
         const pending = getUnsentCaptions().length;
         updateStatus(`${pending} new · You: ${finalText.slice(0, 40)}${finalText.length > 40 ? '…' : ''}`);
-
-        getSettings().then((settings) => {
-          if (!entry || !shouldAutoForward(finalText, settings)) return;
-          forwardToChatGPT('Microphone', 'You', finalText).then((result) => {
-            if (result?.success) {
-              markCaptionsSent([entry]);
-              markStoredTranscriptSent([entry]);
-            }
-          });
-        });
+        void entry;
       };
 
       recognition.onerror = (event) => {

@@ -8,8 +8,10 @@ class BridgeServer {
     this.bridgeRouter = bridgeRouter;
     this.server = null;
     this.pendingActions = [];
+    this.pendingPayloads = [];
     this.sendQueueProcessing = false;
     this.sendQueueClaimedAt = 0;
+    this._payloadSeq = 0;
   }
 
   enqueueAction(action) {
@@ -18,8 +20,38 @@ class BridgeServer {
     this.pendingActions.push(action);
   }
 
+  enqueuePayload(action, payload = {}) {
+    if (!action) return null;
+    this._payloadSeq += 1;
+    const entry = {
+      id: `${action}-${Date.now()}-${this._payloadSeq}`,
+      action,
+      ...payload
+    };
+    this.pendingPayloads.push(entry);
+    return entry.id;
+  }
+
   getPendingActions() {
     return [...this.pendingActions];
+  }
+
+  getPendingPayloads() {
+    return this.pendingPayloads.map(({ id, action, lines }) => ({
+      id,
+      action,
+      lines: Array.isArray(lines) ? lines : []
+    }));
+  }
+
+  ackPendingPayload({ id, name } = {}) {
+    const before = this.pendingPayloads.length;
+    this.pendingPayloads = this.pendingPayloads.filter((p) => {
+      if (id && p.id === id) return false;
+      if (!id && name && p.action === name) return false;
+      return true;
+    });
+    return before !== this.pendingPayloads.length;
   }
 
   resetStaleSendQueueClaim(maxAgeMs = 35000) {
@@ -77,7 +109,10 @@ class BridgeServer {
       if (req.method === 'GET' && req.url === '/pending') {
         this.resetStaleSendQueueClaim();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ actions: this.getPendingActions() }));
+        res.end(JSON.stringify({
+          actions: this.getPendingActions(),
+          payloads: this.getPendingPayloads()
+        }));
         return;
       }
 

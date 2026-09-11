@@ -90,6 +90,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "protocols": [
+      {
+        "name": "Dictate",
+        "schemes": ["dictate"]
+      }
+    ]
   }
 }

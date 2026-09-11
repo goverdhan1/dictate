@@ -1,5 +1,5 @@
 const undetectable = document.getElementById('undetectable');
-const bridgeEnabled = document.getElementById('bridgeEnabled');
+const undetectableStatus = document.getElementById('undetectable-status');
 const preview = document.getElementById('transcript-preview');
 const meta = document.getElementById('transcript-meta');
 const statusEl = document.getElementById('transcript-status');
@@ -10,6 +10,13 @@ const endBtn = document.getElementById('end-transcript');
 function setStatus(message, isError = false) {
   statusEl.textContent = message || '';
   statusEl.classList.toggle('error', !!isError);
+}
+
+function setUndetectableStatus(on) {
+  if (!undetectableStatus) return;
+  undetectableStatus.textContent = on
+    ? 'On — the ChatGPT overlay should stay hidden from screen share. Restart Dictate Desktop if attendees still see it.'
+    : 'Off — the overlay is visible on screen share. Check this box to hide it.';
 }
 
 function renderTranscript(data) {
@@ -37,18 +44,39 @@ async function refreshTranscript() {
 }
 
 async function load() {
-  const settings = await window.dictateSettings.getSettings();
-  undetectable.checked = settings.undetectable !== false;
-  bridgeEnabled.checked = settings.bridgeEnabled !== false;
+  if (!window.dictateSettings?.getSettings) {
+    if (undetectableStatus) {
+      undetectableStatus.textContent = 'Settings API unavailable — restart Dictate Desktop.';
+    }
+    return;
+  }
+  try {
+    const settings = await window.dictateSettings.getSettings();
+    undetectable.checked = true;
+    if (settings?.undetectable === false) {
+      try {
+        await window.dictateSettings.setUndetectable(true);
+      } catch {
+        /* still show checked — capture exclusion is the default */
+      }
+    }
+    setUndetectableStatus(true);
+  } catch (e) {
+    if (undetectableStatus) {
+      undetectableStatus.textContent = `Could not load settings: ${e?.message || e}`;
+    }
+  }
   await refreshTranscript();
 }
 
-undetectable.addEventListener('change', () => {
-  window.dictateSettings.setUndetectable(undetectable.checked);
-});
-
-bridgeEnabled.addEventListener('change', () => {
-  window.dictateSettings.setSetting('bridgeEnabled', bridgeEnabled.checked);
+undetectable.addEventListener('change', async () => {
+  const on = undetectable.checked;
+  setUndetectableStatus(on);
+  try {
+    await window.dictateSettings.setUndetectable(on);
+  } catch {
+    /* ignore */
+  }
 });
 
 copyBtn.addEventListener('click', async () => {

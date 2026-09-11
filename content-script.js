@@ -20,7 +20,10 @@
     'form:has(#prompt-textarea)',
     'div:has(> #prompt-textarea)',
     'form:has([data-testid="prompt-textarea"])',
-    'div:has(> [data-testid="prompt-textarea"])'
+    'div:has(> [data-testid="prompt-textarea"])',
+    'form:has([contenteditable="true"])',
+    'div[class*="composer" i]',
+    'div[class*="prompt" i]'
   ];
 
   const INPUT_SELECTORS = [
@@ -36,9 +39,18 @@
     'textarea[name="prompt-textarea"]',
     'textarea[placeholder*="Message" i]',
     'textarea[placeholder*="Ask" i]',
+    'textarea[placeholder*="prompt" i]',
     '[data-id="root"][contenteditable]',
     'form[data-type="unified-composer"] [contenteditable]',
-    'form[data-type="unified-composer"] textarea'
+    'form[data-type="unified-composer"] textarea',
+    'div[aria-label*="Write your prompt to Claude" i]',
+    'div[aria-label*="Enter a prompt" i]',
+    'rich-textarea .ql-editor',
+    'div.ql-editor[contenteditable="true"]',
+    'textarea#userInput',
+    'textarea[data-testid="composer-input"]',
+    'div[contenteditable="true"][data-placeholder]',
+    'div[contenteditable="true"].ProseMirror'
   ];
 
   const DICTATE_START_SELECTORS = [
@@ -69,7 +81,11 @@
     '#composer-submit-button',
     'button[aria-label="Send prompt"]',
     'button[aria-label="Send message"]',
-    'button[aria-label="Send"]'
+    'button[aria-label="Send Message"]',
+    'button[aria-label="Send"]',
+    'button[aria-label*="Send message" i]',
+    'button[aria-label*="Submit" i]',
+    'button[data-testid="composer-send-button"]'
   ];
 
   const VOICE_MODE_RE = /voice mode|start voice|use voice|read aloud/i;
@@ -279,7 +295,7 @@
     const href = String(location.href || '').toLowerCase();
     if (/\/auth|\/log-?in|signin|accounts\.google|auth0/.test(href)) return true;
     const hasComposer = !!document.querySelector(
-      '#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"]'
+      '#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"], [role="textbox"], textarea, [contenteditable="true"]'
     );
     const loginBtn = document.querySelector(
       'button[data-testid="login-button"], button[data-testid="welcome-login-button"], a[href*="login"], a[href*="auth"]'
@@ -338,12 +354,25 @@
     ]) || clickByText(/^new chat$/i);
   }
 
+  function agentLabel() {
+    const host = String(location.hostname || '').toLowerCase();
+    if (/chatgpt|openai/.test(host)) return 'ChatGPT';
+    if (/claude|anthropic/.test(host)) return 'Claude';
+    if (/cursor/.test(host)) return 'Cursor';
+    if (/gemini|bard/.test(host)) return 'Gemini';
+    if (/copilot|bing/.test(host)) return 'Copilot';
+    if (/perplexity/.test(host)) return 'Perplexity';
+    if (/grok|x\.ai/.test(host)) return 'Grok';
+    return 'this agent';
+  }
+
   function missingInputError() {
-    if (isLoginWall()) return 'Sign in to ChatGPT in the overlay first';
-    if (document.querySelector('#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"]')) {
-      return 'ChatGPT composer is hidden — click the message box, then Send again';
+    const name = agentLabel();
+    if (isLoginWall()) return `Sign in to ${name} in the overlay first`;
+    if (document.querySelector('#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"], [role="textbox"], textarea, [contenteditable="true"]')) {
+      return `${name} composer is hidden — click the message box, then Send again`;
     }
-    return 'ChatGPT input not found — open a new chat in the overlay';
+    return `${name} input not found — open a new chat in the overlay`;
   }
 
   async function ensureComposerReady(maxMs = 12000) {
@@ -670,7 +699,7 @@
       const inputEl = await ensureComposerReady(15000);
       if (!inputEl) {
         const err = missingInputError();
-        log('ChatGPT input not found for Teams message', location.href, document.title, err);
+        log(`${agentLabel()} input not found for Teams message`, location.href, document.title, err);
         return { success: false, error: err };
       }
 
@@ -681,7 +710,7 @@
 
       const ok = setInputText(inputEl, trimmed);
       if (!ok) {
-        return { success: false, error: 'Could not set ChatGPT input' };
+        return { success: false, error: `Could not set ${agentLabel()} input` };
       }
 
       // Give React a moment, then wait until Send is enabled.
@@ -692,7 +721,7 @@
       const sent = await trySendComposer(5000);
       if (!sent) {
         log('Send button not found after Teams insert');
-        return { success: false, error: 'ChatGPT Send button not found/disabled' };
+        return { success: false, error: `${agentLabel()} Send button not found/disabled` };
       }
 
       log('Received from Teams and sent:', trimmed);

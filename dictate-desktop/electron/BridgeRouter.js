@@ -4,6 +4,10 @@ const { showOverlayWindow } = require('./WindowHelper');
 const DELIVER_TIMEOUT_MS = 40000;
 const PING_TIMEOUT_MS = 4000;
 
+function agentName(appState) {
+  return appState?.getAgent?.()?.name || 'ChatGPT';
+}
+
 function withTimeout(promise, ms, errorMessage) {
   return Promise.race([
     promise,
@@ -72,8 +76,10 @@ class BridgeRouter {
             || document.querySelector('[data-testid="prompt-textarea"]')
             || document.querySelector('form[data-type="unified-composer"]')
             || document.querySelector('[contenteditable="plaintext-only"]')
+            || document.querySelector('[contenteditable="true"]')
             || document.querySelector('div.ProseMirror[contenteditable="true"]')
             || document.querySelector('[role="textbox"]')
+            || document.querySelector('textarea')
           )
         })`, true);
         if (state?.bridge && state?.input) return frame;
@@ -137,7 +143,7 @@ class BridgeRouter {
         this.chatgptInjected = true;
         await new Promise((r) => setTimeout(r, 800));
       } catch (e) {
-        console.warn('[Dictate] ChatGPT inject failed:', e?.message || e);
+        console.warn(`[Dictate] ${agentName(this.appState)} inject failed:`, e?.message || e);
         return false;
       }
     }
@@ -150,7 +156,7 @@ class BridgeRouter {
       this.chatgptInjected = true;
       await new Promise((r) => setTimeout(r, 800));
     } catch (e) {
-      console.warn('[Dictate] ChatGPT re-inject failed:', e?.message || e);
+      console.warn(`[Dictate] ${agentName(this.appState)} re-inject failed:`, e?.message || e);
       return false;
     }
 
@@ -167,12 +173,12 @@ class BridgeRouter {
     try {
       const ready = await this.ensureChatGPTReady();
       if (!ready) {
-        return { success: false, error: 'ChatGPT page not ready — sign in in the overlay' };
+        return { success: false, error: `${agentName(this.appState)} is not ready — sign in in the overlay` };
       }
 
       const wc = this.appState.getChatGPTWebContents();
       if (!wc) {
-        return { success: false, error: 'ChatGPT view unavailable' };
+        return { success: false, error: `${agentName(this.appState)} view unavailable` };
       }
 
       const payload = JSON.stringify(String(text || ''));
@@ -186,13 +192,13 @@ class BridgeRouter {
             (async () => {
               const text = ${payload};
               if (typeof window.__dictateReceiveFromTeams !== 'function') {
-                return { success: false, error: 'ChatGPT bridge not injected — restart Dictate Desktop' };
+                return { success: false, error: 'Agent bridge not injected — restart Dictate Desktop' };
               }
               return await window.__dictateReceiveFromTeams(text);
             })()
           `, true),
           DELIVER_TIMEOUT_MS,
-          'ChatGPT forward timed out — open a chat in the overlay'
+          `${agentName(this.appState)} forward timed out — open a chat in the overlay`
         );
 
         return result;
@@ -216,7 +222,7 @@ class BridgeRouter {
 
     const result = await this.deliverToChatGPTPage(text);
     if (!result?.success) {
-      console.warn('[Dictate] forwardToChatGPT failed:', result?.error || result);
+      console.warn(`[Dictate] forwardToChatGPT failed:`, result?.error || result);
     }
     return result;
   }
@@ -253,6 +259,14 @@ class BridgeRouter {
     switch (message.action) {
       case 'ping':
         return { success: true, pong: true };
+
+      case 'showOverlay':
+        if (typeof this.onShowOverlay === 'function') {
+          this.onShowOverlay();
+        } else {
+          showOverlayWindow(this.appState);
+        }
+        return { success: true };
 
       case 'storage-get':
         return this.handleStorageGet(message.keys);
@@ -309,6 +323,14 @@ class BridgeRouter {
 
       case 'claimSendQueue':
         return { success: this.bridgeServer?.tryClaimSendQueue() ?? false };
+
+      case 'ackPendingPayload':
+        return {
+          success: this.bridgeServer?.ackPendingPayload({
+            id: message.id,
+            name: message.name || message.actionName
+          }) ?? false
+        };
 
       case 'reportSendResult':
         if (this.bridgeServer) {

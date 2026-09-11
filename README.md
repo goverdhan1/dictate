@@ -40,13 +40,15 @@ Use the desktop app for Teams / Zoom / Webex / Meet **apps**. Use the extension 
 
 Run this while you are in **Teams**, **Zoom Workplace / Zoom**, **Webex**, or **Google Meet** (desktop app, installed PWA, or a Meet-titled window).
 
-1. Start the app:
+1. Start the app (from a terminal, or click **Start Dictate Desktop** in the extension popup after you have run it once so the launcher is registered):
 
    ```bash
    cd dictate-desktop
    npm install
    npm start
    ```
+
+   The first `npm start` registers a `dictate://` handler so the popup button can launch the app later.
 
 2. Join the meeting in the desktop app (or Meet window).
 3. Turn on **live captions**. On Windows you can also press **Win+Ctrl+L**.
@@ -109,7 +111,7 @@ After you change extension files: reload the extension, then refresh ChatGPT and
 
 ## Local transcript and Send
 
-Captions are written to a **transcript** (full history) and a small **live queue** (auto-forward / “new caption” hints).
+Captions are written to a **transcript** (full history) and a small **live queue** (“N new” status hints).
 
 | Action | What happens |
 |--------|----------------|
@@ -134,11 +136,9 @@ Without the desktop app, the extension keeps the same data in `chrome.storage.lo
 | Setting | Meaning |
 |---------|---------|
 | Enable ChatGPT auto-send | After dictation, send the ChatGPT composer. |
-| Enable meeting→ChatGPT bridge | Capture meeting captions and allow Send / auto-forward. |
 | Auto-enable live captions | Try to turn captions on in the meeting UI. |
-| Auto-forward | Off, questions (`?`), or complete sentences. |
-| Custom prefix | Optional text prepended to each ChatGPT payload. |
 | Copy transcript / New transcript | Clipboard or start a new log (archives via desktop if it is running). |
+| Start Dictate Desktop | Opens or focuses the local overlay app (`dictate://` after first `npm start`). |
 
 ---
 
@@ -146,7 +146,7 @@ Without the desktop app, the extension keeps the same data in `chrome.storage.lo
 
 - Captions stay **on this computer** (Electron user data and/or extension storage).
 - The only local network call is `http://127.0.0.1:38473` between the extension and Dictate Desktop.
-- ChatGPT sees only what you **Send** or what auto-forward sends. Copy/Export never uploads the file.
+- ChatGPT sees only what you **Send**. Copy/Export never uploads the file.
 
 ---
 
@@ -157,8 +157,8 @@ Without the desktop app, the extension keeps the same data in `chrome.storage.lo
 | Overlay: ChatGPT input not found | Open a chat (not the login wall), wait for ChatGPT to finish loading, click Send again. |
 | No unsent captions | Turn on live captions. Windows: **Win+Ctrl+L**. Confirm the meeting window is focused enough for captions to render. |
 | Meet desktop not detected | Window title must contain **Meet**, **Google Meet**, or **meet.google.com**. Other Chrome windows are ignored on purpose. |
-| Browser Send does nothing | Load the extension on the meeting tab, enable the bridge in the popup, reload the tab. |
-| Overlay visible in screen share | Turn **Undetectable Mode** on (Settings or Dictate menu). macOS 15+ ScreenCaptureKit may still capture. |
+| Browser Send does nothing | Load the extension on the meeting tab, reload the tab. |
+| Overlay visible in screen share | **Undetectable Mode** is on by default (Settings or Dictate menu). Restart Dictate Desktop. macOS 15+ ScreenCaptureKit may still capture. |
 | Extension out of date | Reload the extension; for a packed copy run `node scripts/pack-extension.js` again. |
 
 ---

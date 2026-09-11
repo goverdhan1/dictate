@@ -20,7 +20,7 @@ flowchart LR
   ext --> liveQ
   overlay -->|"Send: unsent from store"| store
   store --> overlay
-  liveQ -->|"auto-forward only"| overlay
+  liveQ -->|"status hints only"| overlay
 ```
 
 ## Components
@@ -28,7 +28,7 @@ flowchart LR
 | Component | Path | Role |
 |-----------|------|------|
 | Shared helpers | [`caption-utils.js`](../caption-utils.js) | Normalize, dedupe, unsent chunking, `CaptionQueue`. Loaded in the extension **before** the meeting core; required by Electron via [`CaptionQueue.js`](../dictate-desktop/electron/CaptionQueue.js). |
-| Meeting core | [`meeting-bridge-core.js`](../meeting-bridge-core.js) | Caption scan, persist, Send, auto-forward, ChatGPT forward. |
+| Meeting core | [`meeting-bridge-core.js`](../meeting-bridge-core.js) | Caption scan, persist, manual Send, ChatGPT forward. |
 | Platform adapters | `teams-bridge.js`, `meet-bridge.js`, `zoom-bridge.js`, `webex-bridge.js` | DOM selectors and “turn on captions” per product. |
 | Background | [`background.js`](../background.js) | Inject bridges, route `sendMeetingQueue` to a meeting tab, talk to the desktop bridge. |
 | ChatGPT page | [`content-script.js`](../content-script.js) | Dictation auto-send and composer injection. |
@@ -44,7 +44,7 @@ flowchart LR
 - Extension: `chrome.storage.local.meetingTranscript`.
 - While Dictate Desktop is up, the extension POSTs `appendTranscript` so both sources share one desktop file.
 
-**Live queue** (~300–400 lines): in-memory only. Used for auto-forward and “N new captions” hints. Trimming this queue must **not** delete transcript lines.
+**Live queue** (~300–400 lines): in-memory only. Used for “N new captions” status hints. Trimming this queue must **not** delete transcript lines.
 
 Each transcript line looks like:
 
@@ -59,16 +59,16 @@ Each transcript line looks like:
 }
 ```
 
-`sent: true` means ChatGPT already received that line (manual Send or auto-forward). Growing a live caption updates `text` in place and does **not** clear `sent`.
+`sent: true` means ChatGPT already received that line via manual **Send**. Growing a live caption updates `text` in place and does **not** clear `sent`.
 
 ## Send
 
 1. Overlay **Send** (`overlay-send` in [`ipcHandlers.js`](../dictate-desktop/electron/ipcHandlers.js)) takes the oldest **unsent** transcript lines, formats `Author: text` (no timestamps), and injects them into the ChatGPT `webview`.
-2. On success those lines are marked `sent`. The live queue is marked too so auto-forward does not repeat them.
+2. On success those lines are marked `sent`. The live queue is marked too so a later Send does not repeat them.
 3. If the payload would exceed ~20,000 characters, only the oldest chunk goes; remaining unsent lines wait for the next Send.
 4. If the desktop transcript is empty, Send falls back to the extension (`sendMeetingQueue`), which reads `meetingTranscript` the same way.
 
-Auto-forward (questions / sentences) still uses the live queue, then marks the matching transcript lines sent.
+There is **no auto-forward** — captions stay local until you click **Send**.
 
 ## Desktop caption watcher
 
@@ -88,7 +88,7 @@ Dictate Desktop listens on **`http://127.0.0.1:38473`** ([`BridgeServer.js`](../
 | GET | `/pending` | Actions queued for a meeting tab (e.g. `sendMeetingQueue`). |
 | POST | `/bridge` | JSON `{ action, ... }` handled by [`BridgeRouter.js`](../dictate-desktop/electron/BridgeRouter.js). |
 
-Useful actions: `appendTranscript`, `markTranscriptSent`, `getTranscript`, `endTranscript`, `forwardToChatGPT`, `sendMeetingQueue` (queued for the tab).
+Useful actions: `appendTranscript`, `markTranscriptSent`, `getTranscript`, `endTranscript`, `forwardToChatGPT`, `sendMeetingQueue` (queued for the tab), `showOverlay` (focus/create the overlay from the extension popup).
 
 CORS is open for localhost so content scripts may call it. Nothing is exposed off-loopback.
 

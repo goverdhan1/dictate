@@ -3,12 +3,11 @@ if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'u
 }
 
 const checkbox = document.getElementById('enabled');
-const bridgeCheckbox = document.getElementById('bridgeEnabled');
 const autoEnableCaptionsCheckbox = document.getElementById('autoEnableCaptions');
-const autoForwardMode = document.getElementById('autoForwardMode');
-const forwardPrefix = document.getElementById('forwardPrefix');
 const showAnswerOverlayCheckbox = document.getElementById('showAnswerOverlay');
 const openChatGptBtn = document.getElementById('open-chatgpt');
+const startDesktopBtn = document.getElementById('start-desktop');
+const desktopStatus = document.getElementById('desktop-status');
 const openTeamsBtn = document.getElementById('open-teams');
 const openMeetBtn = document.getElementById('open-meet');
 const openZoomBtn = document.getElementById('open-zoom');
@@ -18,59 +17,36 @@ const copyTranscriptBtn = document.getElementById('copy-transcript');
 const endTranscriptBtn = document.getElementById('end-transcript');
 const transcriptStatus = document.getElementById('transcript-status');
 const DESKTOP_BRIDGE = 'http://127.0.0.1:38473/bridge';
+const DESKTOP_HEALTH = 'http://127.0.0.1:38473/health';
+const DESKTOP_PROTOCOL = 'dictate://start';
 
 async function loadSettings() {
   const data = await chrome.storage.local.get({
     enabled: true,
-    bridgeEnabled: true,
     autoEnableCaptions: true,
-    autoForwardMode: 'questions',
-    autoForwardQuestions: true,
-    forwardPrefix: '',
     showAnswerOverlay: true
   });
 
   checkbox.checked = data.enabled;
-  bridgeCheckbox.checked = data.bridgeEnabled;
   autoEnableCaptionsCheckbox.checked = data.autoEnableCaptions !== false;
   showAnswerOverlayCheckbox.checked = data.showAnswerOverlay !== false;
 
-  let prefix = data.forwardPrefix || '';
-  if (prefix === 'Answer this meeting question: ' || prefix === 'Answer this meeting question:') {
-    prefix = '';
-    chrome.storage.local.set({ forwardPrefix: '' });
-  }
-  forwardPrefix.value = prefix;
-
-  if (data.autoForwardMode) {
-    autoForwardMode.value = data.autoForwardMode;
-  } else {
-    autoForwardMode.value = data.autoForwardQuestions === false ? 'off' : 'questions';
-  }
+  // Captions only go to ChatGPT via Send — clear any legacy auto-forward settings.
+  // Meeting→ChatGPT bridge is always on.
+  chrome.storage.local.set({
+    bridgeEnabled: true,
+    autoForwardMode: 'off',
+    autoForwardQuestions: false
+  });
+  chrome.storage.local.remove('forwardPrefix');
 }
 
 checkbox.addEventListener('change', () => {
   chrome.storage.local.set({ enabled: checkbox.checked });
 });
 
-bridgeCheckbox.addEventListener('change', () => {
-  chrome.storage.local.set({ bridgeEnabled: bridgeCheckbox.checked });
-});
-
 autoEnableCaptionsCheckbox.addEventListener('change', () => {
   chrome.storage.local.set({ autoEnableCaptions: autoEnableCaptionsCheckbox.checked });
-});
-
-autoForwardMode.addEventListener('change', () => {
-  chrome.storage.local.set({ autoForwardMode: autoForwardMode.value });
-});
-
-forwardPrefix.addEventListener('change', () => {
-  chrome.storage.local.set({ forwardPrefix: forwardPrefix.value });
-});
-
-forwardPrefix.addEventListener('blur', () => {
-  chrome.storage.local.set({ forwardPrefix: forwardPrefix.value });
 });
 
 showAnswerOverlayCheckbox.addEventListener('change', () => {
@@ -79,6 +55,84 @@ showAnswerOverlayCheckbox.addEventListener('change', () => {
 
 openChatGptBtn.addEventListener('click', () => {
   chrome.tabs.create({ url: 'https://chatgpt.com' });
+});
+
+function setDesktopStatus(message) {
+  if (desktopStatus) desktopStatus.textContent = message || '';
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isDesktopRunning() {
+  try {
+    const res = await fetch(DESKTOP_HEALTH, { method: 'GET' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function launchDesktopViaProtocol() {
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = DESKTOP_PROTOCOL;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } catch {
+    /* fall through */
+  }
+  try {
+    chrome.tabs.create({ url: DESKTOP_PROTOCOL, active: false }, (tab) => {
+      if (chrome.runtime.lastError) return;
+      if (tab?.id) {
+        setTimeout(() => {
+          try {
+            chrome.tabs.remove(tab.id, () => {
+              void chrome.runtime.lastError;
+            });
+          } catch {
+            /* ignore */
+          }
+        }, 1200);
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+startDesktopBtn?.addEventListener('click', async () => {
+  startDesktopBtn.disabled = true;
+  setDesktopStatus('Checking…');
+  try {
+    if (await isDesktopRunning()) {
+      await postDesktop('showOverlay');
+      setDesktopStatus('Dictate Desktop is already running');
+      return;
+    }
+
+    setDesktopStatus('Starting Dictate Desktop…');
+    launchDesktopViaProtocol();
+
+    for (let i = 0; i < 24; i++) {
+      await sleep(500);
+      if (await isDesktopRunning()) {
+        await postDesktop('showOverlay');
+        setDesktopStatus('Dictate Desktop started');
+        return;
+      }
+    }
+
+    setDesktopStatus(
+      'Could not start. Run once from a terminal: cd dictate-desktop && npm start — then try this button again.'
+    );
+  } finally {
+    startDesktopBtn.disabled = false;
+  }
 });
 
 openTeamsBtn.addEventListener('click', () => {
@@ -181,3 +235,9 @@ endTranscriptBtn?.addEventListener('click', async () => {
 });
 
 loadSettings();
+
+(async () => {
+  if (await isDesktopRunning()) {
+    setDesktopStatus('Dictate Desktop is running');
+  }
+})();

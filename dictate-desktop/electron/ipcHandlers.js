@@ -1,6 +1,7 @@
 const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
-const { refreshUndetectable } = require('./WindowHelper');
+const { refreshUndetectable, showSettingsWindow } = require('./WindowHelper');
+const { listProviders, publicProvider } = require('./aiProviders');
 const {
   parseZoomMeetingId,
   parseZoomPasscode,
@@ -124,6 +125,54 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     }
   });
 
+  ipcMain.handle('overlay-get-undetectable', async () => ({
+    success: true,
+    undetectable: appState.isUndetectable()
+  }));
+
+  ipcMain.handle('overlay-set-undetectable', async (_event, payload) => {
+    appState.setUndetectable(!!payload?.value);
+    refreshUndetectable(appState);
+    return { success: true, undetectable: appState.isUndetectable() };
+  });
+
+  ipcMain.handle('overlay-open-settings', async () => {
+    showSettingsWindow(appState);
+    return { success: true };
+  });
+
+  ipcMain.handle('overlay-get-agent', async () => {
+    const provider = publicProvider(appState.getAgent());
+    return {
+      success: true,
+      provider,
+      providers: listProviders()
+    };
+  });
+
+  ipcMain.handle('overlay-set-agent', async (_event, payload) => {
+    const provider = publicProvider(appState.setAgentProvider(payload?.id));
+    bridge.chatgptInjected = false;
+    const wc = appState.getChatGPTWebContents();
+    let loaded = false;
+    if (wc) {
+      try {
+        await wc.loadURL(provider.url);
+        loaded = true;
+      } catch (e) {
+        console.warn('[Dictate] agent load failed:', e?.message || e);
+      }
+    }
+    if (appState.overlayWindow && !appState.overlayWindow.isDestroyed()) {
+      try {
+        appState.overlayWindow.webContents.send('overlay-data', { agent: provider });
+      } catch {
+        /* ignore */
+      }
+    }
+    return { success: true, provider, loaded };
+  });
+
   ipcMain.handle('overlay-update', async (_event, payload) => {
     bridge.relayToOverlay(payload);
     return { success: true };
@@ -144,15 +193,18 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       if (!transcriptStore) return null;
       const chunk = transcriptStore.takeUnsentChunk();
       if (!chunk.lines.length) return null;
-      const settings = appState.getAll?.() || {};
-      const prefix = settings.forwardPrefix || '';
       const batch = transcriptStore.formatUnsent(chunk.lines);
       if (!batch.trim()) return null;
-      const payload = prefix ? prefix + batch : batch;
-      const result = await bridge.forwardToChatGPT(payload);
+      const result = await bridge.forwardToChatGPT(batch);
       if (result?.success) {
         transcriptStore.markSent(chunk.lines);
         desktopWatcher?.queue?.markSent(chunk.lines);
+        bridge.bridgeServer?.enqueuePayload?.('markMeetingTranscriptSent', {
+          lines: chunk.lines.map((line) => ({
+            author: line.author || '',
+            text: line.text || ''
+          }))
+        });
       }
       const remaining = transcriptStore.getUnsent().length;
       const n = chunk.lines.length;
@@ -181,6 +233,19 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       }
       const afterWait = await flushTranscript();
       if (afterWait) return afterWait;
+    }
+
+    // Desktop already has the call log and nothing left unsent — do not fall back to the
+    // extension transcript (it may still list the same lines as unsent and re-send everything).
+    if (transcriptStore) {
+      const current = transcriptStore.getCurrent();
+      if (current.lines.length > 0 && !transcriptStore.hasUnsent()) {
+        return {
+          sent: false,
+          success: false,
+          error: 'No new captions — all saved captions were already sent. Wait for more speech, then click Send.'
+        };
+      }
     }
 
     const queued = bridge.requestSendFromOverlay();

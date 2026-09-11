@@ -20,12 +20,6 @@ function formatMessage(_source, author, text) {
   return author ? `${author}: ${text}` : text;
 }
 
-function buildPayload(settings, author, text) {
-  const trimmed = text.trim();
-  const body = formatMessage('', author, trimmed);
-  return settings.forwardPrefix ? settings.forwardPrefix + body : body;
-}
-
 function scanTeamsCaptionsFromDom(document, seenCaptions) {
   const CAPTION_SELECTORS = {
     text: "[data-tid='closed-caption-text']",
@@ -105,27 +99,15 @@ function assert(condition, message) {
   }
 }
 
-console.log('\n=== shouldAutoForward (from meeting-bridge-core) ===\n');
+console.log('\n=== shouldAutoForward (manual Send only) ===\n');
 
 assert(
-  shouldAutoForward('What is the deadline?', { autoForwardMode: 'questions' }),
-  'questions mode forwards questions'
+  !shouldAutoForward('What is the deadline?', { autoForwardMode: 'questions' }),
+  'never auto-forwards questions'
 );
 assert(
-  !shouldAutoForward('We ship on Friday.', { autoForwardMode: 'questions' }),
-  'questions mode ignores statements'
-);
-assert(
-  shouldAutoForward('We ship on Friday.', { autoForwardMode: 'sentences' }),
-  'sentences mode forwards statements with period'
-);
-assert(
-  shouldAutoForward('Is it ready?', { autoForwardMode: 'sentences' }),
-  'sentences mode forwards questions with ? (8+ chars)'
-);
-assert(
-  !shouldAutoForward('Hi.', { autoForwardMode: 'sentences' }),
-  'sentences mode ignores very short fragments (<8 chars)'
+  !shouldAutoForward('We ship on Friday.', { autoForwardMode: 'sentences' }),
+  'never auto-forwards sentences'
 );
 assert(
   !shouldAutoForward('Anything at all?', { autoForwardMode: 'off' }),
@@ -147,19 +129,19 @@ assert(
   'bareText strips punctuation'
 );
 
-console.log('\n=== buildPayload / prefix ===\n');
+console.log('\n=== formatMessage ===\n');
 
 assert(
-  buildPayload(
-    { forwardPrefix: 'Answer this meeting question: ' },
-    'John',
-    'What is the budget?'
-  ) === 'Answer this meeting question: John: What is the budget?',
-  'custom prefix is prepended with author'
+  formatMessage('', 'John', 'What is the budget?') === 'John: What is the budget?',
+  'formatMessage includes author and text'
 );
 assert(
-  buildPayload({ forwardPrefix: '' }, 'Jane', 'Hello there.') === 'Jane: Hello there.',
-  'empty prefix sends author and text only'
+  formatMessage('', 'Jane', 'Hello there.') === 'Jane: Hello there.',
+  'formatMessage sends author and text only'
+);
+assert(
+  formatMessage('', '', 'Hello there.') === 'Hello there.',
+  'formatMessage omits empty author'
 );
 
 console.log('\n=== caption DOM scraping (platform fixtures) ===\n');
@@ -217,9 +199,8 @@ if (JSDOM) {
   const webexCaptions = scanWebexCaptionsFromDom(webexDom.window.document, webexSeen);
   assert(webexCaptions.length === 1 && webexCaptions[0].author === 'Dave', 'Webex: parses caption item');
 
-  const settings = { autoForwardMode: 'questions', forwardPrefix: '' };
-  const toForward = teamsCaptions.filter((c) => shouldAutoForward(c.text, settings));
-  assert(toForward.length === 1 && toForward[0].author === 'Alice', 'only questions selected in questions mode');
+  const toForward = teamsCaptions.filter((c) => shouldAutoForward(c.text, { autoForwardMode: 'questions' }));
+  assert(toForward.length === 0, 'auto-forward is disabled — nothing selected without Send');
 } else {
   console.log('  (skipped DOM tests — jsdom not installed; logic tests above still ran)');
 }
