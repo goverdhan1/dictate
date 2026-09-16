@@ -32,7 +32,7 @@ flowchart LR
 | Platform adapters | `teams-bridge.js`, `meet-bridge.js`, `zoom-bridge.js`, `webex-bridge.js` | DOM selectors and “turn on captions” per product. |
 | Background | [`background.js`](../background.js) | Inject bridges, route `sendMeetingQueue` to a meeting tab, talk to the desktop bridge. |
 | ChatGPT page | [`content-script.js`](../content-script.js) | Dictation auto-send and composer injection. |
-| Desktop shell | [`dictate-desktop/electron/`](../dictate-desktop/electron/) | Overlay `webview` (ChatGPT), IPC, caption watcher, transcript files. |
+| Desktop shell | [`dictate-desktop/electron/`](../dictate-desktop/electron/) | Overlay `BrowserView` (ChatGPT / other agents), IPC, caption watcher, transcript files. |
 | Overlay UI | [`dictate-desktop/renderer/overlay/`](../dictate-desktop/renderer/overlay/) | Send, Transcript copy, ChatGPT frame. |
 | Settings UI | [`dictate-desktop/renderer/settings/`](../dictate-desktop/renderer/settings/) | Undetectable, bridge toggle, transcript preview / export / end call. |
 
@@ -63,7 +63,7 @@ Each transcript line looks like:
 
 ## Send
 
-1. Overlay **Send** (`overlay-send` in [`ipcHandlers.js`](../dictate-desktop/electron/ipcHandlers.js)) takes the oldest **unsent** transcript lines, formats `Author: text` (no timestamps), and injects them into the ChatGPT `webview`.
+1. Overlay **Send** (`overlay-send` in [`ipcHandlers.js`](../dictate-desktop/electron/ipcHandlers.js)) takes the oldest **unsent** transcript lines, formats `Author: text` (no timestamps), and injects them into the ChatGPT `BrowserView`.
 2. On success those lines are marked `sent`. The live queue is marked too so a later Send does not repeat them.
 3. If the payload would exceed ~20,000 characters, only the oldest chunk goes; remaining unsent lines wait for the next Send.
 4. If the desktop transcript is empty, Send falls back to the extension (`sendMeetingQueue`), which reads `meetingTranscript` the same way.
@@ -94,7 +94,7 @@ CORS is open for localhost so content scripts may call it. Nothing is exposed of
 
 ## Overlay ChatGPT
 
-The overlay is a `BrowserWindow` with a `<webview src="https://chatgpt.com">`. Guest scripts (`chatgpt-preload.js`, `content-script.js`) fill the composer. Replies stay in the ChatGPT UI; they are not copied into a side pane.
+The overlay is a `BrowserWindow` with a `BrowserView` loading the selected agent (ChatGPT by default). Guest scripts (`chatgpt-preload.js`, `content-script.js`) fill the composer. Replies stay in the agent UI; they are not copied into a side pane.
 
 ## Adding a meeting platform
 

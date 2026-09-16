@@ -1,4 +1,4 @@
-const { BrowserWindow, screen } = require('electron');
+const { BrowserWindow, BrowserView, session, screen } = require('electron');
 const path = require('path');
 const { applyMacStealth } = require('../native/macos-stealth');
 const { applyWindowsExcludeFromCapture } = require('../native/windows-stealth');
@@ -6,6 +6,10 @@ const { isAllowedOverlayUrl } = require('./aiProviders');
 
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
+
+/** Header chrome height in the overlay renderer (matches index.html). */
+const OVERLAY_TOP_CHROME = 48;
+const AGENT_PARTITION = 'persist:dictate-agent';
 
 /** Re-apply capture exclusion while the overlay stays visible (Teams can drop affinity). */
 const stealthTimers = new WeakMap();
@@ -48,7 +52,6 @@ function startStealthKeepAlive(win, appState) {
     try {
       win.setContentProtection(true);
       tick += 1;
-      // Native affinity is slower; reinforce less often than Electron's API.
       if (tick === 1 || tick % 5 === 0) {
         applyWindowsExcludeFromCapture(win, true);
       }
@@ -80,7 +83,12 @@ function applyUndetectable(win, enable, appState = null) {
 }
 
 function chromeUserAgent(ua) {
-  return String(ua || '').replace(/Electron\/[^\s]+/, 'Chrome/120.0.0.0');
+  // Keep the real Chromium version; only drop the Electron token so sites
+  // (Cloudflare / ChatGPT) are less likely to treat the view as a bot.
+  return String(ua || '')
+    .replace(/\sElectron\/\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function configureChatGPTWebContents(wc) {
@@ -93,48 +101,135 @@ function configureChatGPTWebContents(wc) {
   }
 }
 
-function attachOverlayChatGPT(win, appState, onGuestReady) {
+function notifyOverlay(appState, payload) {
+  try {
+    if (appState.overlayWindow && !appState.overlayWindow.isDestroyed()) {
+      appState.overlayWindow.webContents.send('overlay-data', payload);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function layoutAgentView(appState, { loading = null, statusExtra = 0 } = {}) {
+  const win = appState.overlayWindow;
+  const view = appState.agentView;
+  if (!win || win.isDestroyed() || !view) return;
+  if (typeof loading === 'boolean') {
+    appState.agentLoading = loading;
+  }
+  const isLoading = appState.agentLoading === true;
+  const [cw, ch] = win.getContentSize();
+  const top = OVERLAY_TOP_CHROME + (statusExtra || 0);
+  if (isLoading) {
+    // Keep the HTML loading cover visible by collapsing the BrowserView.
+    view.setBounds({ x: 0, y: top, width: Math.max(0, cw), height: 0 });
+    return;
+  }
+  view.setBounds({
+    x: 0,
+    y: top,
+    width: Math.max(0, cw),
+    height: Math.max(0, ch - top)
+  });
+}
+
+function attachAgentBrowserView(win, appState, onGuestReady) {
   const preload = path.join(__dirname, 'preload', 'chatgpt-preload.js');
+  const ses = session.fromPartition(AGENT_PARTITION);
+  const view = new BrowserView({
+    webPreferences: {
+      session: ses,
+      preload,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false
+    }
+  });
 
-  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    const src = String(params?.src || '');
-    if (src && !isAllowedOverlayUrl(src)) {
+  appState.agentView = view;
+  win.setBrowserView(view);
+  layoutAgentView(appState, { loading: true });
+
+  const wc = view.webContents;
+  appState.chatgptWebContents = wc;
+  configureChatGPTWebContents(wc);
+
+  wc.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(String(url || ''));
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:' || isAllowedOverlayUrl(url)) {
+        return { action: 'allow' };
+      }
+    } catch {
+      /* deny */
+    }
+    return { action: 'deny' };
+  });
+
+  wc.on('will-navigate', (event, url) => {
+    if (!isAllowedOverlayUrl(url)) {
       event.preventDefault();
-      return;
-    }
-    webPreferences.preload = preload;
-    webPreferences.contextIsolation = true;
-    webPreferences.nodeIntegration = false;
-    webPreferences.sandbox = false;
-    webPreferences.backgroundThrottling = false;
-    if (params) {
-      const ua = chromeUserAgent(params.useragent || params.userAgent || win.webContents.getUserAgent());
-      params.useragent = ua;
-      params.userAgent = ua;
+      console.warn('[Dictate] blocked agent navigation:', url);
     }
   });
 
-  win.webContents.on('did-attach-webview', (_event, guest) => {
-    appState.chatgptWebContents = guest;
-    configureChatGPTWebContents(guest);
-    guest.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsed = new URL(String(url || ''));
-        if (parsed.protocol === 'https:' || parsed.protocol === 'http:' || isAllowedOverlayUrl(url)) {
-          return { action: 'allow' };
-        }
-      } catch {
-        /* deny */
-      }
-      return { action: 'deny' };
+  wc.on('did-start-loading', () => {
+    const agent = appState.getAgent?.() || { name: 'ChatGPT' };
+    layoutAgentView(appState, { loading: true });
+    notifyOverlay(appState, {
+      agentLoading: true,
+      status: `Loading ${agent.name}…`
     });
-    guest.on('destroyed', () => {
-      if (appState.chatgptWebContents === guest) {
-        appState.chatgptWebContents = null;
-      }
-    });
-    if (typeof onGuestReady === 'function') onGuestReady(guest);
   });
+
+  const markLoaded = () => {
+    layoutAgentView(appState, { loading: false });
+    notifyOverlay(appState, { agentLoading: false });
+  };
+
+  wc.on('dom-ready', markLoaded);
+  wc.on('did-finish-load', markLoaded);
+  wc.on('did-stop-loading', markLoaded);
+
+  wc.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    const agent = appState.getAgent?.() || { name: 'ChatGPT' };
+    layoutAgentView(appState, { loading: false });
+    notifyOverlay(appState, {
+      agentLoading: false,
+      error: `Could not load ${agent.name} (${errorDescription || errorCode}). Check network, then pick the agent again.`
+    });
+    console.warn('[Dictate] agent did-fail-load:', errorCode, errorDescription, validatedURL);
+  });
+
+  wc.on('destroyed', () => {
+    if (appState.chatgptWebContents === wc) {
+      appState.chatgptWebContents = null;
+    }
+  });
+
+  win.on('resize', () => layoutAgentView(appState));
+
+  const provider = appState.getAgent?.() || { url: 'https://chatgpt.com', name: 'ChatGPT' };
+  const startUrl = provider.url || 'https://chatgpt.com';
+  notifyOverlay(appState, {
+    agentLoading: true,
+    agent: provider.id ? { id: provider.id, name: provider.name, url: provider.url } : undefined,
+    status: `Loading ${provider.name || 'ChatGPT'}…`
+  });
+  wc.loadURL(startUrl).catch((e) => {
+    console.warn('[Dictate] initial agent load failed:', e?.message || e);
+    notifyOverlay(appState, {
+      agentLoading: false,
+      error: `Could not load ${provider.name || 'ChatGPT'}: ${e?.message || e}`
+    });
+    layoutAgentView(appState, { loading: false });
+  });
+
+  if (typeof onGuestReady === 'function') onGuestReady(wc);
+  return view;
 }
 
 function createOverlayWindow(appState, onChatGPTReady) {
@@ -160,18 +255,18 @@ function createOverlayWindow(appState, onChatGPTReady) {
       preload: path.join(__dirname, 'preload', 'overlay-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      webviewTag: true
+      sandbox: false
     }
   });
 
-  attachOverlayChatGPT(win, appState, onChatGPTReady);
+  appState.overlayWindow = win;
+  attachAgentBrowserView(win, appState, onChatGPTReady);
   win.loadFile(path.join(__dirname, '..', 'renderer', 'overlay', 'index.html'));
 
   win.once('ready-to-show', () => {
     applyUndetectable(win, appState.isUndetectable(), appState);
     win.show();
-    // Affinity can be dropped on first show — re-apply after the HWND is live.
+    layoutAgentView(appState);
     setTimeout(() => {
       if (!win.isDestroyed()) applyUndetectable(win, appState.isUndetectable(), appState);
     }, 100);
@@ -184,6 +279,7 @@ function createOverlayWindow(appState, onChatGPTReady) {
     if (appState.isUndetectable()) {
       applyUndetectable(win, true, appState);
     }
+    layoutAgentView(appState);
   });
 
   win.on('blur', () => {
@@ -201,11 +297,18 @@ function createOverlayWindow(appState, onChatGPTReady) {
 
   win.on('closed', () => {
     stopStealthKeepAlive(win);
+    try {
+      if (appState.agentView) {
+        win.removeBrowserView?.(appState.agentView);
+      }
+    } catch {
+      /* ignore */
+    }
+    appState.agentView = null;
     appState.overlayWindow = null;
     appState.chatgptWebContents = null;
   });
 
-  appState.overlayWindow = win;
   return win;
 }
 
@@ -243,15 +346,7 @@ function showSettingsWindow(appState) {
 }
 
 function notifyOverlayUndetectable(appState) {
-  const overlay = appState.overlayWindow;
-  if (!overlay || overlay.isDestroyed()) return;
-  try {
-    overlay.webContents.send('overlay-data', {
-      undetectable: appState.isUndetectable()
-    });
-  } catch {
-    /* ignore */
-  }
+  notifyOverlay(appState, { undetectable: appState.isUndetectable() });
 }
 
 function showOverlayWindow(appState) {
@@ -261,11 +356,12 @@ function showOverlayWindow(appState) {
   if (overlay.isVisible()) {
     try { overlay.moveTop(); } catch { /* ignore */ }
     applyUndetectable(overlay, enable, appState);
+    layoutAgentView(appState);
     return true;
   }
-  // Do not flash opacity here — it clears WDA_EXCLUDEFROMCAPTURE on Windows.
   overlay.show();
   applyUndetectable(overlay, enable, appState);
+  layoutAgentView(appState);
   setTimeout(() => {
     if (!overlay.isDestroyed()) applyUndetectable(overlay, enable, appState);
   }, 100);
@@ -280,6 +376,50 @@ function refreshUndetectable(appState) {
   notifyOverlayUndetectable(appState);
 }
 
+async function loadAgentInOverlay(appState, provider) {
+  const wc = appState.getChatGPTWebContents?.() || appState.chatgptWebContents;
+  if (!wc || wc.isDestroyed()) {
+    return { loaded: false, error: 'Agent view unavailable — restart Dictate Desktop' };
+  }
+  layoutAgentView(appState, { loading: true });
+  notifyOverlay(appState, {
+    agent: provider,
+    agentLoading: true,
+    status: `Loading ${provider.name}…`
+  });
+  try {
+    try {
+      wc.stop();
+    } catch {
+      /* ignore */
+    }
+    await Promise.race([
+      wc.loadURL(provider.url),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timed out loading agent page')), 60000);
+      })
+    ]);
+    layoutAgentView(appState, { loading: false });
+    notifyOverlay(appState, { agent: provider, agentLoading: false });
+    return { loaded: true };
+  } catch (e) {
+    const loadError = e?.message || String(e);
+    console.warn('[Dictate] agent load failed:', loadError);
+    try {
+      wc.stop();
+    } catch {
+      /* ignore */
+    }
+    layoutAgentView(appState, { loading: false });
+    notifyOverlay(appState, {
+      agent: provider,
+      agentLoading: false,
+      error: `Could not load ${provider.name}: ${loadError}`
+    });
+    return { loaded: false, error: loadError };
+  }
+}
+
 module.exports = {
   createOverlayWindow,
   createSettingsWindow,
@@ -288,5 +428,8 @@ module.exports = {
   applyContentProtection,
   refreshUndetectable,
   showOverlayWindow,
-  configureChatGPTWebContents
+  configureChatGPTWebContents,
+  layoutAgentView,
+  loadAgentInOverlay,
+  OVERLAY_TOP_CHROME
 };

@@ -21,17 +21,18 @@ function readInjectScript(name) {
   return fs.readFileSync(path.join(__dirname, 'inject', name), 'utf8');
 }
 
-function buildPageInjection() {
+function buildPageInjection(agentName = 'ChatGPT') {
   const shim = readInjectScript('chrome-shim.js');
   const flags = `
 window.__dictateElectron = true;
 window.__DICTATE_USE_NATIVE_OVERLAY__ = true;
+window.__DICTATE_AGENT_NAME__ = ${JSON.stringify(String(agentName || 'ChatGPT'))};
 `;
   return `${flags}\n${shim}`;
 }
 
-function buildChatGPTInjection() {
-  const prefix = buildPageInjection();
+function buildChatGPTInjection(agentName = 'ChatGPT') {
+  const prefix = buildPageInjection(agentName);
   const script = readExtensionScript('content-script.js');
   return `${prefix}\n${script}`;
 }

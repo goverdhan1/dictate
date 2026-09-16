@@ -2,9 +2,7 @@ if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'u
   globalThis.chrome = globalThis.browser;
 }
 
-const checkbox = document.getElementById('enabled');
 const autoEnableCaptionsCheckbox = document.getElementById('autoEnableCaptions');
-const showAnswerOverlayCheckbox = document.getElementById('showAnswerOverlay');
 const openChatGptBtn = document.getElementById('open-chatgpt');
 const startDesktopBtn = document.getElementById('start-desktop');
 const desktopStatus = document.getElementById('desktop-status');
@@ -22,35 +20,25 @@ const DESKTOP_PROTOCOL = 'dictate://start';
 
 async function loadSettings() {
   const data = await chrome.storage.local.get({
-    enabled: true,
-    autoEnableCaptions: true,
-    showAnswerOverlay: true
+    autoEnableCaptions: true
   });
 
-  checkbox.checked = data.enabled;
   autoEnableCaptionsCheckbox.checked = data.autoEnableCaptions !== false;
-  showAnswerOverlayCheckbox.checked = data.showAnswerOverlay !== false;
 
   // Captions only go to ChatGPT via Send — clear any legacy auto-forward settings.
-  // Meeting→ChatGPT bridge is always on.
+  // Meeting→ChatGPT bridge is always on. Keep auto-send / answer overlay at defaults.
   chrome.storage.local.set({
     bridgeEnabled: true,
     autoForwardMode: 'off',
-    autoForwardQuestions: false
+    autoForwardQuestions: false,
+    enabled: true,
+    showAnswerOverlay: true
   });
   chrome.storage.local.remove('forwardPrefix');
 }
 
-checkbox.addEventListener('change', () => {
-  chrome.storage.local.set({ enabled: checkbox.checked });
-});
-
 autoEnableCaptionsCheckbox.addEventListener('change', () => {
   chrome.storage.local.set({ autoEnableCaptions: autoEnableCaptionsCheckbox.checked });
-});
-
-showAnswerOverlayCheckbox.addEventListener('change', () => {
-  chrome.storage.local.set({ showAnswerOverlay: showAnswerOverlayCheckbox.checked });
 });
 
 openChatGptBtn.addEventListener('click', () => {

@@ -9,7 +9,6 @@ const statusTextEl = document.getElementById('status-text');
 const joinBtn = document.getElementById('join-btn');
 const meetingIdEl = document.getElementById('meeting-id');
 const loadingEl = document.getElementById('chatgpt-loading');
-const chatgptFrame = document.getElementById('chatgpt-frame');
 const agentSelect = document.getElementById('agent-select');
 
 let sendBusy = false;
@@ -22,6 +21,32 @@ let undetectableOn = true;
 let currentAgent = { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com' };
 let lastMeetingId = '';
 let lastMeetingIdDisplay = '';
+let loadingWatchdog = null;
+
+function clearLoadingWatchdog() {
+  if (loadingWatchdog) {
+    clearTimeout(loadingWatchdog);
+    loadingWatchdog = null;
+  }
+}
+
+function showAgentLoading(provider = currentAgent) {
+  if (!loadingEl) return;
+  loadingEl.classList.remove('hidden');
+  loadingEl.textContent = `Loading ${provider?.name || 'agent'}…`;
+  clearLoadingWatchdog();
+  loadingWatchdog = setTimeout(() => {
+    if (!loadingEl || loadingEl.classList.contains('hidden')) return;
+    loadingEl.textContent =
+      `${provider?.name || 'Agent'} is taking too long. Check your network, pick the agent again, or restart Dictate Desktop.`;
+    setStatus(`${provider?.name || 'Agent'} page did not finish loading`, true);
+  }, 60000);
+}
+
+function hideAgentLoading() {
+  clearLoadingWatchdog();
+  loadingEl?.classList.add('hidden');
+}
 
 function applyAgentUi(provider, { loading = false } = {}) {
   if (!provider?.id) return;
@@ -32,11 +57,32 @@ function applyAgentUi(provider, { loading = false } = {}) {
   if (sendBtn) {
     sendBtn.title = `Send saved unsent captions to ${provider.name}`;
   }
-  if (loading && loadingEl) {
-    loadingEl.classList.remove('hidden');
-    loadingEl.textContent = `Loading ${provider.name}…`;
-  }
+  if (loading) showAgentLoading(provider);
   setMeetingIdTitle(lastMeetingId, lastMeetingIdDisplay);
+}
+
+async function loadAgent(id) {
+  const nextId = String(id || currentAgent.id || 'chatgpt');
+  let provider = currentAgent;
+  try {
+    if (!window.dictateOverlay?.setAgent) {
+      setStatus('Overlay bridge unavailable — restart Dictate Desktop', true);
+      return provider;
+    }
+    showAgentLoading(provider);
+    const result = await window.dictateOverlay.setAgent(nextId);
+    provider = result?.provider || provider;
+    applyAgentUi(provider, { loading: !result?.loaded });
+    if (result?.loaded) hideAgentLoading();
+    if (result?.error && !result?.loaded) {
+      setStatus(result.error, true);
+    }
+    return provider;
+  } catch (e) {
+    setStatus(String(e?.message || e), true);
+    hideAgentLoading();
+  }
+  return provider;
 }
 
 function fillAgentSelect(providers, selectedId) {
@@ -49,27 +95,6 @@ function fillAgentSelect(providers, selectedId) {
     agentSelect.appendChild(opt);
   }
   agentSelect.value = selectedId || providers[0].id;
-}
-
-async function loadAgent(id, { persist = true } = {}) {
-  const nextId = String(id || currentAgent.id || 'chatgpt');
-  let provider = currentAgent;
-  try {
-    if (persist && window.dictateOverlay?.setAgent) {
-      loadingEl?.classList.remove('hidden');
-      if (loadingEl) loadingEl.textContent = 'Loading…';
-      const result = await window.dictateOverlay.setAgent(nextId);
-      provider = result?.provider || provider;
-      applyAgentUi(provider, { loading: true });
-      if (!result?.loaded && chatgptFrame && provider?.url) {
-        chatgptFrame.src = provider.url;
-      }
-      return provider;
-    }
-  } catch (e) {
-    setStatus(String(e?.message || e), true);
-  }
-  return provider;
 }
 
 function setStealthBadge(on) {
@@ -144,11 +169,16 @@ function render(data) {
   if (data.agent?.id) {
     applyAgentUi(data.agent);
   }
+  if (typeof data.agentLoading === 'boolean') {
+    if (data.agentLoading) showAgentLoading(data.agent || currentAgent);
+    else hideAgentLoading();
+  }
   if (data.meetingId || data.meetingIdDisplay) {
     setMeetingIdTitle(data.meetingId, data.meetingIdDisplay);
   }
   const error = data.error || (data.success === false ? data.answer || data.status : '');
   if (error) {
+    hideAgentLoading();
     setStatus(error, true, data);
     return;
   }
@@ -180,6 +210,10 @@ async function handleCopyTranscript() {
 
 async function handleSend() {
   if (sendBusy || !window.dictateOverlay?.send) return;
+  if (loadingEl && !loadingEl.classList.contains('hidden')) {
+    setStatus(`${currentAgent.name} is still loading — wait for the chat UI, then Send again`, true);
+    return;
+  }
   setSendBusy(true);
   try {
     const result = await window.dictateOverlay.send();
@@ -226,46 +260,6 @@ function setupResize() {
 
   resizeHandle.addEventListener('pointerup', endResize);
   resizeHandle.addEventListener('pointercancel', endResize);
-}
-
-function setupChatGPTFrame() {
-  if (!chatgptFrame) return;
-
-  chatgptFrame.addEventListener('did-start-loading', () => {
-    if (loadingEl) {
-      loadingEl.classList.remove('hidden');
-      loadingEl.textContent = `Loading ${currentAgent.name}…`;
-    }
-  });
-
-  chatgptFrame.addEventListener('did-finish-load', () => {
-    loadingEl?.classList.add('hidden');
-  });
-
-  chatgptFrame.addEventListener('did-fail-load', (event) => {
-    const code = event.errorCode;
-    if (code === -3) return;
-    if (loadingEl) {
-      loadingEl.classList.remove('hidden');
-      loadingEl.textContent = `Could not load ${currentAgent.name} — check your network, then try another agent or restart Dictate.`;
-    }
-  });
-
-  chatgptFrame.addEventListener('console-message', (event) => {
-    const level = event.level;
-    const message = String(event.message || '');
-    if (level < 2) return;
-    if (/ResizeObserver|Non-Error promise rejection|favicon/i.test(message)) return;
-    console.warn(`[${currentAgent.name} webview]`, message);
-    if (/Dictate|bridge|receiveFromTeams|__dictate/i.test(message)) {
-      setStatus(message.slice(0, 180), true);
-    }
-  });
-
-  chatgptFrame.addEventListener('render-process-gone', (event) => {
-    const reason = event.reason || 'unknown';
-    setStatus(`${currentAgent.name} view crashed (${reason}) — restart Dictate Desktop`, true);
-  });
 }
 
 window.addEventListener('error', (event) => {
@@ -339,11 +333,8 @@ if (window.dictateOverlay) {
       fillAgentSelect(res.providers, res.provider?.id);
     }
     if (res?.provider) applyAgentUi(res.provider, { loading: true });
-    const url = res?.provider?.url || currentAgent.url;
-    if (chatgptFrame && url) chatgptFrame.src = url;
   }).catch(() => {
     applyAgentUi(currentAgent, { loading: true });
-    if (chatgptFrame) chatgptFrame.src = currentAgent.url;
   });
   window.dictateOverlay.resolveJoin?.().then((resolved) => {
     if (resolved?.meetingId) {
@@ -351,6 +342,7 @@ if (window.dictateOverlay) {
       setJoinAction(resolved.joinUrl, resolved.joinLabel);
     }
   }).catch(() => {});
+} else {
+  applyAgentUi(currentAgent, { loading: true });
+  setStatus('Overlay bridge unavailable — restart Dictate Desktop', true);
 }
-
-setupChatGPTFrame();

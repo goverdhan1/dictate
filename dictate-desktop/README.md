@@ -14,7 +14,7 @@ For the product overview and browser extension, see the [root README](../README.
 
 ## Overlay
 
-The overlay is ChatGPT in a `<webview>`. Header actions:
+The overlay embeds the selected AI in an Electron `BrowserView`. Header actions:
 
 | Control | Behavior |
 |---------|----------|

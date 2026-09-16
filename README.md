@@ -135,7 +135,6 @@ Without the desktop app, the extension keeps the same data in `chrome.storage.lo
 
 | Setting | Meaning |
 |---------|---------|
-| Enable ChatGPT auto-send | After dictation, send the ChatGPT composer. |
 | Auto-enable live captions | Try to turn captions on in the meeting UI. |
 | Copy transcript / New transcript | Clipboard or start a new log (archives via desktop if it is running). |
 | Start Dictate Desktop | Opens or focuses the local overlay app (`dictate://` after first `npm start`). |

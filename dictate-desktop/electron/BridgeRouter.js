@@ -139,7 +139,7 @@ class BridgeRouter {
 
     if (!this.chatgptInjected) {
       try {
-        await injectIntoWebContents(wc, buildChatGPTInjection());
+        await injectIntoWebContents(wc, buildChatGPTInjection(agentName(this.appState)));
         this.chatgptInjected = true;
         await new Promise((r) => setTimeout(r, 800));
       } catch (e) {

@@ -94,8 +94,13 @@
     "protocols": [
       {
         "name": "Dictate",
-        "schemes": ["dictate"]
+        "schemes": [
+          "dictate"
+        ]
       }
     ]
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }

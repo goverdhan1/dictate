@@ -16,6 +16,8 @@ const store = new Store({
 class AppState {
   constructor() {
     this.chatgptWebContents = null;
+    this.agentView = null;
+    this.agentLoading = false;
     this.overlayWindow = null;
     this.settingsWindow = null;
     this.lastForwardKey = '';

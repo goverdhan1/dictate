@@ -1,6 +1,6 @@
 const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
-const { refreshUndetectable, showSettingsWindow } = require('./WindowHelper');
+const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay } = require('./WindowHelper');
 const { listProviders, publicProvider } = require('./aiProviders');
 const {
   parseZoomMeetingId,
@@ -153,24 +153,13 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
   ipcMain.handle('overlay-set-agent', async (_event, payload) => {
     const provider = publicProvider(appState.setAgentProvider(payload?.id));
     bridge.chatgptInjected = false;
-    const wc = appState.getChatGPTWebContents();
-    let loaded = false;
-    if (wc) {
-      try {
-        await wc.loadURL(provider.url);
-        loaded = true;
-      } catch (e) {
-        console.warn('[Dictate] agent load failed:', e?.message || e);
-      }
-    }
-    if (appState.overlayWindow && !appState.overlayWindow.isDestroyed()) {
-      try {
-        appState.overlayWindow.webContents.send('overlay-data', { agent: provider });
-      } catch {
-        /* ignore */
-      }
-    }
-    return { success: true, provider, loaded };
+    const result = await loadAgentInOverlay(appState, provider);
+    return {
+      success: true,
+      provider,
+      loaded: !!result.loaded,
+      error: result.error || undefined
+    };
   });
 
   ipcMain.handle('overlay-update', async (_event, payload) => {

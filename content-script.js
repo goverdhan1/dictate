@@ -355,6 +355,7 @@
   }
 
   function agentLabel() {
+    if (window.__DICTATE_AGENT_NAME__) return String(window.__DICTATE_AGENT_NAME__);
     const host = String(location.hostname || '').toLowerCase();
     if (/chatgpt|openai/.test(host)) return 'ChatGPT';
     if (/claude|anthropic/.test(host)) return 'Claude';
@@ -368,11 +369,16 @@
 
   function missingInputError() {
     const name = agentLabel();
+    const host = String(location.hostname || '').trim();
+    const where = host || String(location.href || '').slice(0, 80) || 'unknown page';
     if (isLoginWall()) return `Sign in to ${name} in the overlay first`;
+    if (/^about:|^chrome-error:|^data:/i.test(String(location.href || '')) || !host) {
+      return `${name} is still loading (${where}) — wait until the chat UI appears, then Send again`;
+    }
     if (document.querySelector('#prompt-textarea, form[data-type="unified-composer"], [data-testid="prompt-textarea"], [role="textbox"], textarea, [contenteditable="true"]')) {
       return `${name} composer is hidden — click the message box, then Send again`;
     }
-    return `${name} input not found — open a new chat in the overlay`;
+    return `${name} input not found on ${where} — open a new chat in the overlay`;
   }
 
   async function ensureComposerReady(maxMs = 12000) {
