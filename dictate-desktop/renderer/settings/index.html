@@ -4,10 +4,28 @@
     <meta charset="utf-8" />
     <title>Dictate Settings</title>
     <style>
-      body { font-family: "Segoe UI", Arial, sans-serif; padding: 16px; margin: 0; font-size: 13px; }
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        padding: 16px;
+        margin: 0;
+        font-size: 13px;
+        background: #ffffff;
+        color: #201f1e;
+        color-scheme: light;
+        overflow-y: auto;
+      }
       h2 { margin: 0 0 12px; font-size: 16px; }
       h3 { margin: 16px 0 8px; font-size: 13px; }
       label { display: block; margin-bottom: 10px; }
+      input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        margin: 0 0 8px;
+        border: 1px solid #c8c6c4;
+        border-radius: 4px;
+        font-size: 13px;
+      }
       p.note { font-size: 11px; color: #605e5c; line-height: 1.4; }
       #transcript-meta { font-size: 11px; color: #605e5c; margin: 0 0 8px; }
       #transcript-preview {
@@ -37,27 +55,82 @@
       .row button:disabled { opacity: 0.6; cursor: default; }
       #transcript-status { font-size: 11px; margin: 8px 0 0; min-height: 1.2em; color: #2563eb; }
       #transcript-status.error { color: #a4262c; }
+      textarea.context {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        padding: 8px;
+        border: 1px solid #c8c6c4;
+        border-radius: 4px;
+        background: #ffffff;
+        color: #201f1e;
+        resize: vertical;
+      }
+      textarea.context.short { min-height: 72px; }
+      textarea.context.tall { min-height: 120px; }
+      .file-name, .count { font-size: 11px; color: #605e5c; margin: 4px 0 8px; }
+      label.check { display: flex; gap: 8px; align-items: flex-start; }
+      label.check input { margin-top: 2px; }
+      #ai-status { font-size: 11px; margin: 8px 0 0; min-height: 1.2em; color: #2563eb; }
+      #ai-status.error { color: #a4262c; }
     </style>
   </head>
   <body>
     <h2>Dictate Desktop</h2>
-    <h3>Capture protection</h3>
-    <label>
-      <input type="checkbox" id="undetectable" checked />
-      <strong>Undetectable Mode</strong> — exclude overlay from screen capture (Teams / Zoom)
-    </label>
-    <p class="note" id="undetectable-status">Loading…</p>
     <p class="note">
       Captions work from the Teams, Zoom, Webex, and Google Meet <strong>desktop / PWA windows</strong>
       (turn on live captions, or press Win+Ctrl+L on Windows)
       and from browser meetings with the Dictate extension.
     </p>
+
+    <h3>Caption mode</h3>
+    <label>
+      <input type="radio" name="caption-mode" id="mode-live" value="live" checked />
+      <strong>Live</strong> — send only other people’s captions to the selected AI
+    </label>
+    <label>
+      <input type="radio" name="caption-mode" id="mode-mock" value="mock" />
+      <strong>Mock</strong> — send every speaker, including you
+    </label>
+    <label for="self-name">My name in captions</label>
+    <input id="self-name" type="text" placeholder="Filled from Teams, Zoom, Webex, or Meet" autocomplete="name" />
+    <p class="note" id="caption-mode-status">Live mode skips your captions when you click Send.</p>
+
+    <h3>AI context</h3>
+    <p class="note" id="ai-provider">Loading…</p>
+    <label for="ai-instructions">Instructions</label>
+    <textarea id="ai-instructions" class="context short" placeholder="Example: Help me in a live interview for this role. Answer as me, in the first person, using my resume and the job description. Keep answers short enough to say out loud."></textarea>
+    <p class="count" id="ai-instructions-count"></p>
+
+    <label for="resume-text">Resume</label>
+    <div class="row">
+      <button type="button" id="upload-resume">Upload resume</button>
+      <button type="button" id="clear-resume">Clear</button>
+    </div>
+    <p class="file-name" id="resume-file">No resume uploaded</p>
+    <textarea id="resume-text" class="context tall" placeholder="Upload a PDF, Word, or text file, or paste your resume here."></textarea>
+    <p class="count" id="resume-count"></p>
+
+    <label for="jd-text">Job description</label>
+    <div class="row">
+      <button type="button" id="upload-jd">Upload JD</button>
+      <button type="button" id="clear-jd">Clear</button>
+    </div>
+    <p class="file-name" id="jd-file">No job description uploaded</p>
+    <textarea id="jd-text" class="context tall" placeholder="Upload a PDF, Word, or text file, or paste the job description here."></textarea>
+    <p class="count" id="jd-count"></p>
+
+    <div class="row">
+      <button type="button" id="save-ai-context" class="primary">Save context</button>
+      <button type="button" id="send-ai-context">Send to AI now</button>
+    </div>
+    <p id="ai-status"></p>
     <p class="note">
-      Pick ChatGPT, Claude, Cursor Agents, Gemini, Microsoft Copilot, Perplexity, or Grok from the overlay header. Sign in inside the overlay, then use Send to drop captions into that chat.
-    </p>
-    <p class="note">
-      Windows: Undetectable Mode is on by default and excludes the overlay from screen capture (Teams/Zoom). Restart Dictate Desktop after updates, then share your desktop briefly to confirm attendees do not see the overlay.
-      macOS 15+ Teams/Zoom using ScreenCaptureKit may still capture the overlay.
+      Dictate saves this on this computer and sends it once when the overlay chat is ready. Caption Send and Screenshot do not attach it again.
+      After a new chat, switch the AI in the overlay and click <strong>Context</strong> there, or click <strong>Send to AI now</strong> here. The overlay stays hidden from screen share. The Settings window is visible if you open it.
+      Accepted uploads: PDF, DOCX, TXT, and Markdown.
     </p>
 
     <h3>Meeting transcript</h3>

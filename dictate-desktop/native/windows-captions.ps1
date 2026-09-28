@@ -140,6 +140,7 @@ function Collect-FromElement($el, $budget, $out, $bottomOnly, $winRect, $platfor
   $budget.Value--
   try {
     $name = [string]$el.Current.Name
+    Note-SelfLabel $name
     $id = [string]$el.Current.AutomationId
     $cls = [string]$el.Current.ClassName
     $typeName = [string]$el.Current.ControlType.ProgrammaticName
@@ -229,6 +230,33 @@ function Try-EnableCaptions($window) {
   return $false
 }
 
+function Note-SelfLabel([string]$label) {
+  if (-not $label) { return }
+  $value = ($label -replace '\s+', ' ').Trim()
+  if ($value.Length -lt 4 -or $value.Length -gt 140) { return }
+  # Teams/Meet: (You), ", You". Zoom/Webex: (Me), "Me, Name", "Name - Me".
+  if ($value -notmatch '(?i)(\(you\)|\(me\)|,\s*you\b|,\s*me\b|^(you|me)\s*[,:\-–—]\s*\p{L}|[-–—]\s*(you|me)\s*$)') { return }
+  if ($script:selfLabels.Count -ge 8) { return }
+  if ($script:selfLabels -contains $value) { return }
+  $script:selfLabels.Add($value) | Out-Null
+}
+
+function Find-SelfLabels($el, $budget) {
+  if ($budget.Value -le 0 -or $null -eq $el -or $script:selfLabels.Count -ge 3) { return }
+  $budget.Value--
+  try { Note-SelfLabel ([string]$el.Current.Name) } catch { return }
+  if ($script:selfLabels.Count -ge 3) { return }
+  try {
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $child = $walker.GetFirstChild($el)
+    while ($null -ne $child -and $budget.Value -gt 0 -and $script:selfLabels.Count -lt 3) {
+      $next = $walker.GetNextSibling($child)
+      Find-SelfLabels $child $budget
+      $child = $next
+    }
+  } catch {}
+}
+
 function Read-Window($window, $platform) {
   $list = New-Object System.Collections.Generic.List[object]
   $budget = @{ Value = 420 }
@@ -248,8 +276,10 @@ $winCond = New-Object System.Windows.Automation.PropertyCondition(
 )
 
 $enableTried = @{}
+$selfScanTick = 0
 
 while ($true) {
+  $script:selfLabels = New-Object System.Collections.Generic.List[string]
   $byPlatform = @{}
   $detected = @()
   $meetingId = ''
@@ -289,6 +319,15 @@ while ($true) {
           [void](Try-EnableCaptions $w)
         }
 
+        $selfScanTick++
+        $deepNameScan = ($platform -eq 'meet' -or $platform -eq 'webex')
+        if ($deepNameScan -or (($selfScanTick % 3) -eq 1)) {
+          $limit = 220
+          if ($deepNameScan) { $limit = 900 }
+          $selfBudget = @{ Value = $limit }
+          Find-SelfLabels $w $selfBudget
+        }
+
         $captions = Read-Window $w $platform
         if ($captions.Count -gt 0) {
           if (-not $byPlatform.ContainsKey($platform)) {
@@ -317,6 +356,7 @@ while ($true) {
     meetingId = $meetingId
     passcode = $passcode
     meetingSource = $meetingSource
+    selfLabels = @($script:selfLabels)
   }
   $json = $obj | ConvertTo-Json -Compress -Depth 6
   [Console]::Out.WriteLine($json)

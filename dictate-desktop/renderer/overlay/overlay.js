@@ -1,8 +1,8 @@
 const hideBtn = document.getElementById('hide-btn');
-const transcriptBtn = document.getElementById('transcript-btn');
 const settingsBtn = document.getElementById('settings-btn');
-const stealthBadge = document.getElementById('stealth-badge');
 const sendBtn = document.getElementById('send-btn');
+const shotBtn = document.getElementById('shot-btn');
+const contextBtn = document.getElementById('context-btn');
 const resizeHandle = document.getElementById('resize-handle');
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
@@ -12,12 +12,13 @@ const loadingEl = document.getElementById('chatgpt-loading');
 const agentSelect = document.getElementById('agent-select');
 
 let sendBusy = false;
+let shotBusy = false;
+let contextBusy = false;
 let resizePointerId = null;
 let resizeLastX = 0;
 let resizeLastY = 0;
 let statusTimer = null;
 let joinUrl = 'https://app.zoom.us/wc/join';
-let undetectableOn = true;
 let currentAgent = { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com' };
 let lastMeetingId = '';
 let lastMeetingIdDisplay = '';
@@ -57,6 +58,12 @@ function applyAgentUi(provider, { loading = false } = {}) {
   if (sendBtn) {
     sendBtn.title = `Send saved unsent captions to ${provider.name}`;
   }
+  if (shotBtn) {
+    shotBtn.title = `Capture the screen and ask ${provider.name} for an answer`;
+  }
+  if (contextBtn) {
+    contextBtn.title = `Send the saved resume, job description, and instructions to ${provider.name}`;
+  }
   if (loading) showAgentLoading(provider);
   setMeetingIdTitle(lastMeetingId, lastMeetingIdDisplay);
 }
@@ -95,16 +102,6 @@ function fillAgentSelect(providers, selectedId) {
     agentSelect.appendChild(opt);
   }
   agentSelect.value = selectedId || providers[0].id;
-}
-
-function setStealthBadge(on) {
-  undetectableOn = on !== false;
-  if (!stealthBadge) return;
-  stealthBadge.textContent = undetectableOn ? 'protected' : 'visible';
-  stealthBadge.classList.toggle('off', !undetectableOn);
-  stealthBadge.title = undetectableOn
-    ? 'Undetectable Mode is ON — click to turn off, or open Settings'
-    : 'Undetectable Mode is OFF — overlay may appear on screen share. Click to enable.';
 }
 
 function formatMeetingId(id) {
@@ -163,9 +160,6 @@ function setStatus(message, isError = false, join = null) {
 
 function render(data) {
   if (!data) return;
-  if (typeof data.undetectable === 'boolean') {
-    setStealthBadge(data.undetectable);
-  }
   if (data.agent?.id) {
     applyAgentUi(data.agent);
   }
@@ -187,29 +181,83 @@ function render(data) {
   }
 }
 
-function setSendBusy(busy) {
-  sendBusy = busy;
-  sendBtn.disabled = busy;
-  sendBtn.textContent = busy ? 'Sending…' : 'Send';
+function syncActionButtons() {
+  const busy = sendBusy || shotBusy || contextBusy;
+  if (sendBtn) {
+    sendBtn.disabled = busy;
+    sendBtn.textContent = sendBusy ? 'Sending…' : 'Send';
+  }
+  if (shotBtn) {
+    shotBtn.disabled = busy;
+    shotBtn.textContent = shotBusy ? 'Sending…' : 'Screenshot';
+  }
+  if (contextBtn) {
+    contextBtn.disabled = busy;
+    contextBtn.textContent = contextBusy ? 'Sending…' : 'Context';
+  }
 }
 
-async function handleCopyTranscript() {
-  if (!window.dictateOverlay?.copyTranscript) return;
+function setSendBusy(busy) {
+  sendBusy = busy;
+  syncActionButtons();
+}
+
+function setShotBusy(busy) {
+  shotBusy = busy;
+  syncActionButtons();
+}
+
+function setContextBusy(busy) {
+  contextBusy = busy;
+  syncActionButtons();
+}
+
+async function handleSendContext() {
+  if (sendBusy || shotBusy || contextBusy || !window.dictateOverlay?.sendContext) return;
+  if (loadingEl && !loadingEl.classList.contains('hidden')) {
+    setStatus(`${currentAgent.name} is still loading — wait for the chat UI, then send context again`, true);
+    return;
+  }
+  setContextBusy(true);
+  setStatus(`Sending context to ${currentAgent.name}…`);
   try {
-    const result = await window.dictateOverlay.copyTranscript();
+    const result = await window.dictateOverlay.sendContext();
     if (result?.success) {
-      const n = result.count || 0;
-      setStatus(n ? `Copied ${n} caption${n === 1 ? '' : 's'}` : 'Copied transcript');
+      setStatus(result.status || `Sent context to ${currentAgent.name}`);
     } else {
-      setStatus(result?.error || 'No captions stored yet', true);
+      setStatus(result?.error || 'Could not send context', true);
     }
   } catch (e) {
     setStatus(String(e?.message || e), true);
+  } finally {
+    setContextBusy(false);
+  }
+}
+
+async function handleSendScreenshot() {
+  if (sendBusy || shotBusy || contextBusy || !window.dictateOverlay?.sendScreenshot) return;
+  if (loadingEl && !loadingEl.classList.contains('hidden')) {
+    setStatus(`${currentAgent.name} is still loading — wait for the chat UI, then try Screenshot again`, true);
+    return;
+  }
+  setShotBusy(true);
+  setStatus('Capturing the screen…');
+  try {
+    const result = await window.dictateOverlay.sendScreenshot();
+    if (result?.sent || result?.success) {
+      setStatus(result.status || `Sent screenshot to ${currentAgent.name}`);
+    } else {
+      setStatus(result?.error || result?.status || 'Screenshot send failed', true);
+    }
+  } catch (e) {
+    setStatus(String(e?.message || e), true);
+  } finally {
+    setShotBusy(false);
   }
 }
 
 async function handleSend() {
-  if (sendBusy || !window.dictateOverlay?.send) return;
+  if (sendBusy || shotBusy || contextBusy || !window.dictateOverlay?.send) return;
   if (loadingEl && !loadingEl.classList.contains('hidden')) {
     setStatus(`${currentAgent.name} is still loading — wait for the chat UI, then Send again`, true);
     return;
@@ -281,19 +329,8 @@ if (window.dictateOverlay) {
   settingsBtn?.addEventListener('click', () => {
     window.dictateOverlay.openSettings?.().catch(() => {});
   });
-  stealthBadge?.addEventListener('click', async () => {
-    try {
-      const next = !undetectableOn;
-      const result = await window.dictateOverlay.setUndetectable?.(next);
-      setStealthBadge(result?.undetectable ?? next);
-      setStatus(next
-        ? 'Undetectable Mode on — hidden from screen share'
-        : 'Undetectable Mode off — visible on screen share', !next);
-    } catch (e) {
-      setStatus(String(e?.message || e), true);
-    }
-  });
-  transcriptBtn?.addEventListener('click', handleCopyTranscript);
+  contextBtn?.addEventListener('click', handleSendContext);
+  shotBtn?.addEventListener('click', handleSendScreenshot);
   sendBtn.addEventListener('click', handleSend);
   joinBtn?.addEventListener('click', async () => {
     try {
@@ -325,9 +362,6 @@ if (window.dictateOverlay) {
   agentSelect?.addEventListener('change', () => {
     loadAgent(agentSelect.value).catch((e) => setStatus(String(e?.message || e), true));
   });
-  window.dictateOverlay.getUndetectable?.().then((res) => {
-    setStealthBadge(res?.undetectable !== false);
-  }).catch(() => setStealthBadge(true));
   window.dictateOverlay.getAgent?.().then((res) => {
     if (Array.isArray(res?.providers)) {
       fillAgentSelect(res.providers, res.provider?.id);

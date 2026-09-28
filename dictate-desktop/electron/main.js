@@ -121,16 +121,6 @@ function buildMenu() {
           label: 'Settings',
           click: () => openSettings()
         },
-        {
-          label: 'Toggle Undetectable Mode',
-          type: 'checkbox',
-          checked: true,
-          click: (item) => {
-            appState.setUndetectable(item.checked);
-            const { refreshUndetectable } = require('./WindowHelper');
-            refreshUndetectable(appState);
-          }
-        },
         { type: 'separator' },
         { role: 'quit' }
       ]
@@ -147,6 +137,7 @@ function wireChatGPTInjection(guestWebContents) {
     bridge.chatgptInjected = false;
     setTimeout(async () => {
       await bridge.ensureChatGPTReady();
+      await bridge.sendSavedContextOnce?.();
     }, 2000);
   };
 

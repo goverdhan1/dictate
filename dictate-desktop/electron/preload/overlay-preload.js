@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   send() {
     return ipcRenderer.invoke('overlay-send');
   },
+  sendScreenshot() {
+    return ipcRenderer.invoke('overlay-send-screenshot');
+  },
+  sendContext() {
+    return ipcRenderer.invoke('overlay-send-context');
+  },
   copyTranscript() {
     return ipcRenderer.invoke('transcript-copy');
   },
@@ -21,12 +27,6 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   },
   resizeBy(dx, dy) {
     return ipcRenderer.invoke('overlay-resize-by', { dx, dy });
-  },
-  getUndetectable() {
-    return ipcRenderer.invoke('overlay-get-undetectable');
-  },
-  setUndetectable(value) {
-    return ipcRenderer.invoke('overlay-set-undetectable', { value });
   },
   openSettings() {
     return ipcRenderer.invoke('overlay-open-settings');

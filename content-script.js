@@ -744,8 +744,250 @@
     }
   }
 
+  const SCREENSHOT_PROMPT = 'Look at this screenshot and answer the question or solve the problem shown on screen. Be direct. If code is required, include it.';
+
+  function screenshotAttachmentCount() {
+    try {
+      return document.querySelectorAll(
+        'img[src^="blob:"], img[src^="data:image"], [data-testid*="thumbnail" i], [data-testid*="attachment" i], button[aria-label*="Remove file" i], button[aria-label*="Remove image" i], button[aria-label*="Remove attachment" i]'
+      ).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  function focusComposer() {
+    const el = getInputEl();
+    try {
+      el?.click?.();
+      el?.focus?.();
+    } catch {
+      /* ignore */
+    }
+    return !!el;
+  }
+
+  function fileFromBase64(b64, mime) {
+    const binary = atob(String(b64 || ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    const type = mime || 'image/jpeg';
+    const name = type === 'image/png' ? 'screenshot.png' : 'screenshot.jpg';
+    return new File([bytes], name, { type });
+  }
+
+  function findImageFileInput() {
+    const roots = [];
+    const composer = getComposer();
+    if (composer && composer !== document) roots.push(composer);
+    roots.push(document);
+    const seen = new Set();
+    for (const root of roots) {
+      let inputs;
+      try {
+        inputs = root.querySelectorAll('input[type="file"]');
+      } catch {
+        continue;
+      }
+      for (const input of inputs) {
+        if (seen.has(input)) continue;
+        seen.add(input);
+        const accept = String(input.getAttribute('accept') || '').toLowerCase();
+        if (!accept || /image|png|jpe?g|\*/.test(accept)) return input;
+      }
+    }
+    return null;
+  }
+
+  function dispatchFileOnInput(input, file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function dispatchTransfer(target, file, type) {
+    if (!target || !file) return;
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const prop = type === 'drop' ? 'dataTransfer' : 'clipboardData';
+    let ev;
+    try {
+      if (type === 'drop') {
+        ev = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
+      } else {
+        ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+      }
+    } catch {
+      ev = new Event(type === 'drop' ? 'drop' : 'paste', { bubbles: true, cancelable: true });
+    }
+    try {
+      Object.defineProperty(ev, prop, { value: dt });
+    } catch {
+      /* ignore */
+    }
+    target.dispatchEvent(ev);
+  }
+
+  function appendComposerText(el, text) {
+    if (!el || !text) return false;
+    const doc = el.ownerDocument || document;
+    const win = doc.defaultView || window;
+    try {
+      el.focus();
+      const selection = win.getSelection();
+      const range = doc.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = doc.execCommand('insertText', false, text);
+      if (ok && getInputText(el).trim()) return true;
+    } catch (e) {
+      log('appendComposerText failed', e);
+    }
+    return setInputText(el, text);
+  }
+
+  function writeScreenshotPrompt(el, prompt) {
+    const text = String(prompt || '').trim() || SCREENSHOT_PROMPT;
+    const existing = getInputText(el).trim();
+    if (existing.length >= 8) return true;
+    if (el.querySelector?.('img')) return appendComposerText(el, text);
+    return setInputText(el, text);
+  }
+
+  async function receiveScreenshot(imageBase64, mime, countBefore, prompt) {
+    if (receiveFromTeamsBusy) {
+      return { success: false, error: 'busy' };
+    }
+
+    receiveFromTeamsBusy = true;
+    suppressInputWatch = true;
+    sending = true;
+    const before = Number(countBefore) || 0;
+
+    try {
+      const inputEl = await ensureComposerReady(15000);
+      if (!inputEl) {
+        return { success: false, error: missingInputError() };
+      }
+
+      const attachedNow = () => screenshotAttachmentCount() > before;
+      const start = Date.now();
+      while (!attachedNow() && Date.now() - start < 1800) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      let file = null;
+      if (!attachedNow() && imageBase64) {
+        try {
+          file = fileFromBase64(imageBase64, mime);
+        } catch (e) {
+          log('screenshot file decode failed', e);
+        }
+      }
+
+      if (file && !attachedNow()) {
+        const fileInput = findImageFileInput();
+        if (fileInput) {
+          dispatchFileOnInput(fileInput, file);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      if (file && !attachedNow()) {
+        dispatchTransfer(inputEl, file, 'paste');
+        const form = inputEl.closest?.('form') || getComposer();
+        if (form && form !== inputEl && form !== document) dispatchTransfer(form, file, 'drop');
+        const droppedAt = Date.now();
+        while (!attachedNow() && Date.now() - droppedAt < 1200) {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+
+      if (!attachedNow()) {
+        const emptyComposer = getInputText(inputEl).trim().length < 8;
+        const sendReady = isSendButtonReady(getSendBtn());
+        if (!(emptyComposer && sendReady)) {
+          return {
+            success: false,
+            error: `Could not attach the screenshot in ${agentLabel()} — click the message box, then try Screenshot again`
+          };
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 700));
+      const wrote = writeScreenshotPrompt(inputEl, prompt);
+      if (!wrote) {
+        return { success: false, error: `Could not add a prompt in ${agentLabel()}` };
+      }
+
+      await new Promise((r) => setTimeout(r, 300));
+      const sent = await trySendComposer(15000);
+      if (!sent) {
+        return {
+          success: false,
+          error: `${agentLabel()} Send button not ready — the screenshot may still be uploading. Try again in a moment.`
+        };
+      }
+
+      log('Sent screenshot to', agentLabel());
+      return { success: true, attached: true };
+    } finally {
+      setTimeout(() => {
+        sending = false;
+        suppressInputWatch = false;
+        receiveFromTeamsBusy = false;
+      }, DEFAULTS.sendAfterSubmitMs + 800);
+    }
+  }
+
+  async function submitPasted(expectedLen) {
+    if (receiveFromTeamsBusy) return { success: false, error: 'busy' };
+    receiveFromTeamsBusy = true;
+    suppressInputWatch = true;
+    sending = true;
+    try {
+      const inputEl = await ensureComposerReady(8000);
+      if (!inputEl) return { success: false, error: missingInputError() };
+      const minLen = Math.min(24, Math.max(1, Number(expectedLen) || 1));
+      const start = Date.now();
+      while (Date.now() - start < 2000 && getInputText(inputEl).trim().length < minLen) {
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      if (getInputText(inputEl).trim().length < minLen) {
+        return { success: false, error: 'paste-empty' };
+      }
+      await new Promise((r) => setTimeout(r, 120));
+      const sent = await trySendComposer(6000);
+      if (!sent) return { success: false, error: `${agentLabel()} Send button not ready` };
+      return { success: true };
+    } finally {
+      setTimeout(() => {
+        sending = false;
+        suppressInputWatch = false;
+        receiveFromTeamsBusy = false;
+      }, DEFAULTS.sendAfterSubmitMs + 400);
+    }
+  }
+
   if (window.__dictateElectron) {
     window.__dictateReceiveFromTeams = receiveFromTeams;
+    window.__dictateSubmitPasted = submitPasted;
+    window.__dictateReceiveScreenshot = receiveScreenshot;
+    window.__dictateScreenshotAttachmentCount = screenshotAttachmentCount;
+    window.__dictateFocusComposer = focusComposer;
+    window.__dictateSuppressComposerWatch = () => {
+      suppressInputWatch = true;
+      sending = true;
+    };
+    window.__dictateReleaseComposerWatch = () => {
+      sending = false;
+      suppressInputWatch = false;
+      receiveFromTeamsBusy = false;
+    };
   }
 
   function clearInput(inputEl) {

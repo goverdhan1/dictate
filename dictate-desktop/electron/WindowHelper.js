@@ -236,11 +236,11 @@ function createOverlayWindow(appState, onChatGPTReady) {
   const { width } = screen.getPrimaryDisplay().workAreaSize;
 
   const win = new BrowserWindow({
-    width: 560,
+    width: 720,
     height: 760,
     minWidth: 420,
     minHeight: 480,
-    x: width - 580,
+    x: width - 740,
     y: 24,
     frame: false,
     transparent: false,
@@ -314,8 +314,10 @@ function createOverlayWindow(appState, onChatGPTReady) {
 
 function createSettingsWindow(appState) {
   const win = new BrowserWindow({
-    width: 460,
-    height: 680,
+    width: 520,
+    height: 860,
+    minWidth: 420,
+    minHeight: 560,
     title: 'Dictate Settings',
     resizable: true,
     alwaysOnTop: true,

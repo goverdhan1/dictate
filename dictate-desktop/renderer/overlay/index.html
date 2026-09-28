@@ -70,25 +70,13 @@
         display: flex;
         align-items: center;
         gap: 6px;
+        flex-shrink: 0;
         -webkit-app-region: no-drag;
       }
       .header-actions button {
         border: none;
         cursor: pointer;
         -webkit-app-region: no-drag;
-      }
-      #transcript-btn {
-        padding: 5px 10px;
-        height: 28px;
-        color: #f3f2f1;
-        background: transparent;
-        border: 1px solid rgba(255,255,255,.28) !important;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 600;
-      }
-      #transcript-btn:hover {
-        background: rgba(255,255,255,.1);
       }
       #send-btn {
         padding: 5px 14px;
@@ -106,6 +94,39 @@
       }
       #send-btn:not(:disabled):hover {
         background: #1d4ed8;
+      }
+      #shot-btn {
+        padding: 5px 10px;
+        height: 28px;
+        color: #fff;
+        background: #0f766e;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      #shot-btn:disabled {
+        opacity: 0.65;
+        cursor: default;
+      }
+      #shot-btn:not(:disabled):hover {
+        background: #0d9488;
+      }
+      #context-btn {
+        padding: 5px 10px;
+        height: 28px;
+        color: #f3f2f1;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      #context-btn:disabled {
+        opacity: 0.65;
+        cursor: default;
+      }
+      #context-btn:not(:disabled):hover {
+        background: rgba(255,255,255,.1);
       }
       #hide-btn {
         background: transparent;
@@ -173,23 +194,6 @@
         pointer-events: none;
       }
       .chatgpt-loading.hidden { display: none; }
-      .badge {
-        font-size: 10px;
-        color: #6ee7b7;
-        margin-left: 6px;
-        cursor: pointer;
-        border: 1px solid rgba(110, 231, 183, 0.35);
-        border-radius: 999px;
-        padding: 1px 7px;
-        -webkit-app-region: no-drag;
-      }
-      .badge.off {
-        color: #fca5a5;
-        border-color: rgba(252, 165, 165, 0.4);
-      }
-      .badge:hover {
-        background: rgba(255,255,255,.08);
-      }
       #settings-btn {
         padding: 5px 10px;
         height: 28px;
@@ -245,12 +249,12 @@
           <select id="agent-select" class="agent-select" title="Load ChatGPT, Claude, Cursor Agents, Gemini, Copilot, Perplexity, or Grok" aria-label="AI agent">
             <option value="chatgpt" selected>ChatGPT</option>
           </select>
-          <button type="button" class="badge" id="stealth-badge" title="Toggle Undetectable Mode — hide overlay from Teams/Zoom screen share">protected</button>
           <span class="meeting-id" id="meeting-id"></span>
         </span>
         <div class="header-actions">
           <button id="settings-btn" type="button" title="Open Dictate Settings">Settings</button>
-          <button id="transcript-btn" type="button" title="Copy the full meeting transcript">Transcript</button>
+          <button id="context-btn" type="button" title="Send the saved resume, job description, and instructions to the selected AI">Context</button>
+          <button id="shot-btn" type="button" title="Capture the screen and ask the selected agent for an answer">Screenshot</button>
           <button id="send-btn" type="button" title="Send saved unsent captions to the selected agent">Send</button>
           <button id="hide-btn" type="button" title="Hide">×</button>
         </div>

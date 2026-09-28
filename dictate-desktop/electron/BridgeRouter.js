@@ -1,5 +1,14 @@
+const { clipboard } = require('electron');
 const { buildChatGPTInjection, injectIntoWebContents } = require('./injectScripts');
 const { showOverlayWindow } = require('./WindowHelper');
+const { readClipboardSnapshot, restoreClipboard } = require('./screenCapture');
+const {
+  buildPrimeOnlyMessage,
+  buildScreenshotPrompt,
+  contextNeedsPrime,
+  prepareAgentMessage,
+  readContextState
+} = require('./aiContext');
 
 const DELIVER_TIMEOUT_MS = 40000;
 const PING_TIMEOUT_MS = 4000;
@@ -24,6 +33,35 @@ class BridgeRouter {
     this.transcriptStore = transcriptStore;
     this.chatgptInjected = false;
     this.deliverInFlight = false;
+    this.contextPrimeInFlight = false;
+    this.contextPrimeFailedAt = 0;
+  }
+
+  async sendSavedContextOnce() {
+    if (this.contextPrimeInFlight || this.deliverInFlight) return { success: false, skipped: true };
+    if (this.contextPrimeFailedAt && Date.now() - this.contextPrimeFailedAt < 60000) {
+      return { success: false, skipped: true };
+    }
+    const state = readContextState(this.appState);
+    if (!contextNeedsPrime(state)) return { success: true, skipped: true };
+    const message = buildPrimeOnlyMessage(state);
+    if (!message) return { success: false, skipped: true };
+
+    this.contextPrimeInFlight = true;
+    try {
+      const result = await this.forwardToChatGPT(message, { raw: true, markApplied: true });
+      if (result?.success) {
+        this.contextPrimeFailedAt = 0;
+        this.relayToOverlay({
+          status: `Sent your resume, job description, and instructions to ${agentName(this.appState)}`
+        });
+      } else {
+        this.contextPrimeFailedAt = Date.now();
+      }
+      return result;
+    } finally {
+      this.contextPrimeInFlight = false;
+    }
   }
 
   requestSendFromOverlay() {
@@ -181,50 +219,185 @@ class BridgeRouter {
         return { success: false, error: `${agentName(this.appState)} view unavailable` };
       }
 
-      const payload = JSON.stringify(String(text || ''));
+      const body = String(text || '');
+      const usePaste = body.length >= 1200;
       wc.setBackgroundThrottling(false);
       showOverlayWindow(this.appState);
       const frame = await this.findChatGPTFrame(wc, { requireInput: true });
+      let clip = null;
 
       try {
-        const result = await withTimeout(
-          frame.executeJavaScript(`
-            (async () => {
-              const text = ${payload};
+        if (usePaste) {
+          clip = readClipboardSnapshot();
+          await frame.executeJavaScript(`(() => {
+            try { window.__dictateSuppressComposerWatch?.(); } catch (e) {}
+            try { window.__dictateFocusComposer?.(); } catch (e) {}
+            return true;
+          })()`, true);
+          clipboard.writeText(body);
+          try { wc.focus(); } catch { /* ignore */ }
+          wc.paste();
+        }
+
+        const fastScript = usePaste
+          ? `(async () => {
+              if (typeof window.__dictateSubmitPasted === 'function') {
+                return await window.__dictateSubmitPasted(${body.length});
+              }
+              return { success: false, error: 'paste-empty' };
+            })()`
+          : `(async () => {
+              const text = ${JSON.stringify(body)};
               if (typeof window.__dictateReceiveFromTeams !== 'function') {
                 return { success: false, error: 'Agent bridge not injected — restart Dictate Desktop' };
               }
               return await window.__dictateReceiveFromTeams(text);
-            })()
-          `, true),
+            })()`;
+
+        let result = await withTimeout(
+          frame.executeJavaScript(fastScript, true),
           DELIVER_TIMEOUT_MS,
           `${agentName(this.appState)} forward timed out — open a chat in the overlay`
         );
 
+        if (usePaste && result?.error === 'paste-empty') {
+          result = await withTimeout(
+            frame.executeJavaScript(`
+              (async () => {
+                if (typeof window.__dictateReceiveFromTeams !== 'function') {
+                  return { success: false, error: 'Agent bridge not injected — restart Dictate Desktop' };
+                }
+                return await window.__dictateReceiveFromTeams(${JSON.stringify(body)});
+              })()
+            `, true),
+            DELIVER_TIMEOUT_MS,
+            `${agentName(this.appState)} forward timed out — open a chat in the overlay`
+          );
+        }
+
         return result;
       } catch (e) {
         return { success: false, error: e?.message || 'Forward failed' };
+      } finally {
+        if (clip) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          restoreClipboard(clip);
+        }
       }
     } finally {
       this.deliverInFlight = false;
     }
   }
 
-  async forwardToChatGPT(text) {
-    const key = String(text || '');
+  async forwardToChatGPT(text, options = {}) {
+    let outgoing = String(text || '');
+    let priming = false;
+    if (!options.raw) {
+      const prepared = prepareAgentMessage(readContextState(this.appState), outgoing);
+      outgoing = prepared.text;
+      priming = prepared.priming;
+    }
+    if (!outgoing.trim()) return { success: false, error: 'Nothing to send' };
+
     const now = Date.now();
-    if (key && key === this.appState.lastForwardKey && now - this.appState.lastForwardAt < 2500) {
+    if (outgoing === this.appState.lastForwardKey && now - this.appState.lastForwardAt < 2500) {
       return { success: false, error: 'Already sending that text' };
     }
 
-    this.appState.lastForwardKey = key;
+    this.appState.lastForwardKey = outgoing;
     this.appState.lastForwardAt = now;
 
-    const result = await this.deliverToChatGPTPage(text);
+    const result = await this.deliverToChatGPTPage(outgoing);
+    if (result?.success && (priming || options.markApplied)) {
+      this.appState.markAiContextApplied?.();
+    }
     if (!result?.success) {
       console.warn(`[Dictate] forwardToChatGPT failed:`, result?.error || result);
     }
     return result;
+  }
+
+  async forwardScreenshot(payload) {
+    if (this.deliverInFlight) {
+      return { success: false, error: 'Forward already in progress' };
+    }
+    if (!payload?.image || !payload.base64) {
+      return { success: false, error: 'Could not capture the screen' };
+    }
+
+    this.deliverInFlight = true;
+    const snap = readClipboardSnapshot();
+    let frame = null;
+
+    try {
+      const ready = await this.ensureChatGPTReady();
+      if (!ready) {
+        return { success: false, error: `${agentName(this.appState)} is not ready — sign in in the overlay` };
+      }
+
+      const wc = this.appState.getChatGPTWebContents();
+      if (!wc) {
+        return { success: false, error: `${agentName(this.appState)} view unavailable` };
+      }
+
+      wc.setBackgroundThrottling(false);
+      showOverlayWindow(this.appState);
+      frame = await this.findChatGPTFrame(wc, { requireInput: true });
+      const shotPrompt = buildScreenshotPrompt(readContextState(this.appState));
+
+      const before = await frame.executeJavaScript(`(() => {
+        try { window.__dictateSuppressComposerWatch?.(); } catch (e) {}
+        try { window.__dictateFocusComposer?.(); } catch (e) {}
+        return typeof window.__dictateScreenshotAttachmentCount === 'function'
+          ? window.__dictateScreenshotAttachmentCount()
+          : 0;
+      })()`, true);
+
+      clipboard.writeImage(payload.image);
+      try { wc.focus(); } catch { /* ignore */ }
+      wc.paste();
+
+      const result = await withTimeout(
+        frame.executeJavaScript(`
+          (async () => {
+            if (typeof window.__dictateReceiveScreenshot !== 'function') {
+              return { success: false, error: 'Screenshot bridge not injected — restart Dictate Desktop' };
+            }
+            return await window.__dictateReceiveScreenshot(
+              ${JSON.stringify(payload.base64)},
+              ${JSON.stringify(payload.mime || 'image/jpeg')},
+              ${Number(before) || 0},
+              ${JSON.stringify(shotPrompt.prompt || '')}
+            );
+          })()
+        `, true),
+        50000,
+        `${agentName(this.appState)} screenshot timed out — open a chat in the overlay`
+      );
+
+      if (result?.success && shotPrompt.priming) {
+        this.appState.markAiContextApplied?.();
+      }
+      if (!result?.success) {
+        console.warn('[Dictate] forwardScreenshot failed:', result?.error || result);
+      }
+      return result || { success: false, error: 'Screenshot send failed' };
+    } catch (e) {
+      try {
+        if (frame) {
+          await frame.executeJavaScript('window.__dictateReleaseComposerWatch?.()', true);
+        }
+      } catch {
+        /* ignore */
+      }
+      const error = e?.message || 'Screenshot send failed';
+      console.warn('[Dictate] forwardScreenshot failed:', error);
+      return { success: false, error };
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      restoreClipboard(snap);
+      this.deliverInFlight = false;
+    }
   }
 
   relayToOverlay(payload) {
@@ -285,6 +458,10 @@ class BridgeRouter {
 
       case 'relayChatGPTResponse':
         showOverlayWindow(this.appState);
+        return { success: true };
+
+      case 'rememberSelfName':
+        this.appState.rememberMeetingSelfName?.(message.name, message.platform);
         return { success: true };
 
       case 'appendTranscript':

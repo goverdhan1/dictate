@@ -21,5 +21,17 @@ contextBridge.exposeInMainWorld('dictateSettings', {
   },
   endTranscript() {
     return ipcRenderer.invoke('transcript-end');
+  },
+  getAiContext() {
+    return ipcRenderer.invoke('ai-context-get');
+  },
+  saveAiContext(payload) {
+    return ipcRenderer.invoke('ai-context-save', payload);
+  },
+  pickAiDocument(kind) {
+    return ipcRenderer.invoke('ai-context-pick', { kind });
+  },
+  sendAiContext() {
+    return ipcRenderer.invoke('ai-context-send');
   }
 });

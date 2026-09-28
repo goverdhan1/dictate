@@ -9,7 +9,7 @@
  * Exports: normalizeCaptionText, captionKey, similarityKey, shouldAutoForward,
  * formatSendLine, formatLines, linesRelated, emptyTranscript, mergeTranscriptLine,
  * getUnsentLines, takeUnsentChunkFrom, markLinesSent, CaptionQueue,
- * SEND_CHUNK_CHARS (20000).
+ * SEND_CHUNK_CHARS (3500).
  *
  * See docs/ARCHITECTURE.md.
  */
@@ -20,7 +20,7 @@
   }
   root.DictateCaptionUtils = api;
 })(typeof globalThis !== 'undefined' ? globalThis : typeof self !== 'undefined' ? self : this, function () {
-  const SEND_CHUNK_CHARS = 20000;
+  const SEND_CHUNK_CHARS = 3500;
   const TRANSCRIPT_MAX_LINES = 20000;
   const TRANSCRIPT_KEEP_LINES = 18000;
   const LIVE_QUEUE_MAX = 400;
@@ -200,28 +200,56 @@
     return n;
   }
 
+  function cutForChunk(piece, maxChars) {
+    if (piece.length <= maxChars) return { head: piece, tail: '' };
+    const slice = piece.slice(0, maxChars);
+    const breakAt = Math.max(slice.lastIndexOf('\n'), slice.lastIndexOf(' '));
+    const cut = breakAt > maxChars * 0.6 ? breakAt : maxChars;
+    return {
+      head: piece.slice(0, cut).trim(),
+      tail: piece.slice(cut).trim()
+    };
+  }
+
   function takeUnsentChunkFrom(lines, maxChars = SEND_CHUNK_CHARS) {
     const chunk = [];
     let size = 0;
-    let unsentTotal = 0;
     let capped = false;
+    const budget = Math.max(1, maxChars);
     for (const line of lines || []) {
       if (line.sent || !normalizeCaptionText(line.text)) continue;
-      unsentTotal += 1;
       if (capped) continue;
       const piece = formatSendLine(line);
       if (!piece) continue;
       const add = chunk.length ? 1 + piece.length : piece.length;
-      if (chunk.length && size + add > maxChars) {
+      if (!chunk.length && piece.length > budget) {
+        const parts = cutForChunk(piece, budget);
+        chunk.push({ author: '', text: parts.head, key: line.key, sim: line.sim });
+        if (parts.tail) {
+          line.author = '';
+          line.text = parts.tail;
+          line.key = captionKey('', parts.tail);
+          line.sim = similarityKey('', parts.tail);
+        } else {
+          line.sent = true;
+        }
+        size = parts.head.length;
+        capped = true;
+        continue;
+      }
+      if (chunk.length && size + add > budget) {
         capped = true;
         continue;
       }
       chunk.push(line);
       size += add;
     }
+    const queued = (lines || []).filter((line) => (
+      !line.sent && normalizeCaptionText(line.text) && !chunk.includes(line)
+    )).length;
     return {
       lines: chunk,
-      remaining: unsentTotal - chunk.length,
+      remaining: queued,
       chars: size
     };
   }
@@ -396,6 +424,104 @@
     return 'https://app.zoom.us/wc/join';
   }
 
+  const SELF_AUTHORS = new Set(['you', 'me', 'myself']);
+
+  function cleanSelfDisplayName(name) {
+    const cleaned = String(name || '').replace(/[,.\s]+$/g, '').trim();
+    if (cleaned.length < 2 || cleaned.length > 60) return '';
+    if (/^(you|me|host|guest|muted|unmuted|participant|participants)$/i.test(cleaned)) return '';
+    if (/\b(joined|left|said|leave|meeting|call|caption|mute|unmute|share|chat)\b/i.test(cleaned)) return '';
+    if (/\d{3,}/.test(cleaned)) return '';
+    return cleaned;
+  }
+
+  /**
+   * Local tile labels:
+   * Teams / Meet: "Name (You)" or "Name, muted, You"
+   * Zoom / Webex: "Name (Me)", "Name (Host, me)", "Me, Name", "Name - Me"
+   */
+  function extractSelfDisplayName(label) {
+    const value = String(label || '').replace(/\s+/g, ' ').trim();
+    if (value.length < 4 || value.length > 140) return '';
+    let name = '';
+    const paren = value.match(/^(.+?)\s*\(([^)]{0,48})\)\s*$/);
+    if (paren && /\b(you|me)\b/i.test(paren[2])) {
+      name = paren[1].trim();
+    } else {
+      const leading = value.match(/^(?:you|me)\s*[,:\-–—]\s*(.+)$/i);
+      if (leading && !/\b(are|were|joined|left|said)\b/i.test(leading[1])) {
+        name = leading[1].split(',')[0].trim();
+      } else {
+        const dashed = value.match(/^(.+?)\s+[-–—]\s+(?:you|me)\s*$/i);
+        if (dashed) {
+          name = dashed[1].trim();
+        } else {
+          const comma = value.match(/^(.+?),\s*(.+)$/);
+          if (
+            comma
+            && /\b(you|me)\b/i.test(comma[2])
+            && !/\b(joined|left|said|are|were)\b/i.test(comma[2])
+          ) {
+            name = comma[1].trim();
+          }
+        }
+      }
+    }
+    return cleanSelfDisplayName(name);
+  }
+
+  function pickSelfDisplayName(labels) {
+    const list = Array.isArray(labels) ? labels : (labels ? [labels] : []);
+    let fallback = '';
+    for (const label of list) {
+      const name = extractSelfDisplayName(label);
+      if (!name) continue;
+      if (/\((?:[^)]*,\s*)?(?:you|me)\)/i.test(String(label || ''))) return name;
+      if (!fallback) fallback = name;
+    }
+    return fallback;
+  }
+
+  function authorMatchKey(name) {
+    return String(name || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isSelfAuthor(author, selfNames) {
+    const key = authorMatchKey(author);
+    if (!key) return false;
+    if (SELF_AUTHORS.has(key)) return true;
+    const names = Array.isArray(selfNames) ? selfNames : [selfNames];
+    for (const raw of names) {
+      const name = authorMatchKey(raw);
+      if (!name || name.length < 2) continue;
+      if (key === name || key.startsWith(`${name} `) || name.startsWith(`${key} `)) return true;
+      const parts = name.split(' ').filter((part) => part.length > 2);
+      if (parts.length >= 2 && parts.every((part) => ` ${key} `.includes(` ${part} `))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Live mode drops the user's own captions. Mock mode forwards every speaker.
+   * Lines with no speaker name are kept in both modes.
+   */
+  function splitCaptionsForSend(lines, options = {}) {
+    const list = Array.isArray(lines) ? lines : [];
+    if (options.mode === 'mock') return { forward: list.slice(), skip: [] };
+    const names = options.selfNames || options.selfName || [];
+    const forward = [];
+    const skip = [];
+    for (const line of list) {
+      if (isSelfAuthor(line?.author, names)) skip.push(line);
+      else forward.push(line);
+    }
+    return { forward, skip };
+  }
+
   return {
     SEND_CHUNK_CHARS,
     TRANSCRIPT_MAX_LINES,
@@ -424,6 +550,10 @@
     parseZoomPasscode,
     extractZoomInviteUrl,
     formatZoomMeetingId,
-    buildZoomJoinUrl
+    buildZoomJoinUrl,
+    isSelfAuthor,
+    extractSelfDisplayName,
+    pickSelfDisplayName,
+    splitCaptionsForSend
   };
 });

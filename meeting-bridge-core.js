@@ -637,11 +637,50 @@
       }, 4000);
     }
 
+    let lastSelfNameScan = 0;
+    let lastReportedSelfName = '';
+
+    function scanMeetingSelfName() {
+      const now = Date.now();
+      if (now - lastSelfNameScan < 4000) return;
+      lastSelfNameScan = now;
+      const utils = window.DictateCaptionUtils;
+      if (!utils?.pickSelfDisplayName) return;
+      let nodes = [];
+      try {
+        nodes = document.querySelectorAll(
+          '[aria-label*="(You)"], [aria-label*="(you)"], [aria-label*="(Me)"], [aria-label*="(me)"], [aria-label*=", You"], [aria-label*=", Me"], [aria-label*=" - You"], [aria-label*=" - Me"], [aria-label^="You,"], [aria-label^="Me,"], [aria-label^="You:"], [aria-label^="Me:"], [data-self-name]'
+        );
+      } catch {
+        return;
+      }
+      const labels = [];
+      for (const el of nodes) {
+        const selfAttr = el.getAttribute?.('data-self-name') || '';
+        if (selfAttr) labels.push(`${selfAttr} (You)`);
+        const label = el.getAttribute?.('aria-label') || '';
+        if (label) labels.push(label);
+        if (labels.length >= 8) break;
+      }
+      const name = utils.pickSelfDisplayName(labels);
+      if (!name || name === lastReportedSelfName) return;
+      lastReportedSelfName = name;
+      isDesktopBridgeUp().then((up) => {
+        if (!up) return;
+        return postToDesktopBridge({
+          action: 'rememberSelfName',
+          name,
+          platform: config.id || ''
+        });
+      }).catch(() => {});
+    }
+
     function scanCaptions() {
       if (captionScanInFlight) return;
       captionScanInFlight = true;
       try {
         if (config.hideCaptionOverlay) config.hideCaptionOverlay();
+        scanMeetingSelfName();
         config.collectCaptionsFromDom(bridgeHelpers);
 
         if (captionQueue.length > 400) {
@@ -874,6 +913,29 @@
             status: lastStatusText,
             error: 'No new captions yet — in the Chrome meeting, turn on Captions / Live Transcript, wait for speech, then click Send'
           };
+        }
+
+        if (typeof captionUtils.splitCaptionsForSend === 'function') {
+          let mode = 'live';
+          let selfName = '';
+          try {
+            const stored = await chrome.storage.local.get({ captionMode: 'live', selfName: '' });
+            mode = stored?.captionMode === 'mock' ? 'mock' : 'live';
+            selfName = stored?.selfName || '';
+          } catch {
+            /* keep live */
+          }
+          const split = captionUtils.splitCaptionsForSend(unsent, { mode, selfNames: [selfName] });
+          if (split.skip.length) {
+            markCaptionsSent(split.skip);
+            markLinesSent(stored.lines, split.skip);
+            try { await chrome.storage.local.set({ meetingTranscript: stored }); } catch { /* ignore */ }
+          }
+          unsent = split.forward;
+          if (!unsent.length) {
+            updateStatus('Live mode — skipped your captions. Only other speakers are sent.');
+            return { success: true, sent: false, status: lastStatusText };
+          }
         }
 
         let body = collapseDuplicatedPayload(unsent.map((c) => formatSendLine(c)).filter(Boolean).join('\n'));

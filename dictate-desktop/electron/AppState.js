@@ -1,5 +1,28 @@
+const { execFileSync } = require('child_process');
 const Store = require('electron-store');
 const { DEFAULT_PROVIDER_ID, getProvider } = require('./aiProviders');
+const {
+  LIMITS,
+  hasAiContext,
+  mergeSavedContext,
+  readContextState,
+  storableContext
+} = require('./aiContext');
+
+function readWindowsFullName() {
+  if (process.platform !== 'win32') return '';
+  try {
+    const out = execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '([adsi]"WinNT://$env:USERDOMAIN/$env:USERNAME,user").FullName'
+    ], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    return String(out || '').replace(/\u0000/g, '').trim();
+  } catch {
+    return '';
+  }
+}
 
 const store = new Store({
   defaults: {
@@ -9,7 +32,18 @@ const store = new Store({
     autoForwardMode: 'off',
     showAnswerOverlay: true,
     enabled: true,
-    agentProvider: DEFAULT_PROVIDER_ID
+    agentProvider: DEFAULT_PROVIDER_ID,
+    captionMode: 'live',
+    selfName: '',
+    aiContext: {
+      instructions: '',
+      resumeText: '',
+      resumeFileName: '',
+      jdText: '',
+      jdFileName: '',
+      revision: 0
+    },
+    aiContextApplied: {}
   }
 });
 
@@ -29,6 +63,7 @@ class AppState {
     this.set('bridgeEnabled', true);
     this.set('autoForwardMode', 'off');
     store.delete('forwardPrefix');
+    store.delete('aiContextEverySend');
   }
 
   get(key) {
@@ -40,11 +75,48 @@ class AppState {
   }
 
   getAll() {
+    const agent = this.getAgent();
     return {
       ...store.store,
       undetectable: this.isUndetectable(),
-      agentProvider: this.getAgentProvider()
+      agentProvider: agent.id,
+      agentName: agent.name
     };
+  }
+
+  getAiContextView() {
+    const ctx = storableContext(this.get('aiContext'));
+    const state = readContextState(this);
+    const agent = this.getAgent();
+    const active = hasAiContext(ctx);
+    return {
+      ...ctx,
+      providerId: agent.id,
+      providerName: agent.name,
+      active,
+      applied: active && Number(state.appliedRevision) === Number(ctx.revision),
+      limits: LIMITS
+    };
+  }
+
+  saveAiContext(input) {
+    const saved = mergeSavedContext(this.get('aiContext'), input);
+    const next = saved.context;
+    this.set('aiContext', next);
+    return {
+      context: this.getAiContextView(),
+      truncated: saved.truncated
+    };
+  }
+
+  markAiContextApplied() {
+    const ctx = storableContext(this.get('aiContext'));
+    if (!hasAiContext(ctx)) return ctx;
+    const providerId = this.getAgentProvider();
+    const applied = { ...(this.get('aiContextApplied') || {}) };
+    applied[providerId] = Number(ctx.revision) || 0;
+    this.set('aiContextApplied', applied);
+    return this.getAiContextView();
   }
 
   getAgentProvider() {
@@ -61,12 +133,37 @@ class AppState {
     return provider;
   }
 
-  isUndetectable() {
-    return store.get('undetectable') !== false;
+  ensureSelfName() {
+    const current = String(this.get('selfName') || '').trim();
+    if (current) return current;
+    if (this._selfNameLookup) return '';
+    this._selfNameLookup = true;
+    const name = readWindowsFullName();
+    if (name) {
+      this.set('selfName', name);
+      if (!this.get('selfNameSource')) this.set('selfNameSource', 'windows');
+    }
+    return name;
   }
 
-  setUndetectable(value) {
-    store.set('undetectable', !!value);
+  rememberMeetingSelfName(name, platform) {
+    const clean = String(name || '').replace(/\s+/g, ' ').trim();
+    if (clean.length < 2 || clean.length > 60) return false;
+    if (this.get('selfNameSource') === 'manual') return false;
+    const current = String(this.get('selfName') || '').trim();
+    const same = current.toLowerCase() === clean.toLowerCase();
+    if (!same) this.set('selfName', clean);
+    this.set('selfNameSource', 'meeting');
+    this.set('selfNamePlatform', String(platform || '').toLowerCase());
+    return !same;
+  }
+
+  isUndetectable() {
+    return true;
+  }
+
+  setUndetectable() {
+    store.set('undetectable', true);
   }
 
   getChatGPTWebContents() {

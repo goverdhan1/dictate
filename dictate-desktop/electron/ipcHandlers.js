@@ -1,13 +1,21 @@
 const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
 const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay } = require('./WindowHelper');
+const { captureScreenForSend } = require('./screenCapture');
 const { listProviders, publicProvider } = require('./aiProviders');
+const {
+  LIMITS,
+  buildPrimeOnlyMessage,
+  clampField,
+  extractDocument
+} = require('./aiContext');
 const {
   parseZoomMeetingId,
   parseZoomPasscode,
   buildZoomJoinUrl,
   extractZoomInviteUrl,
-  formatZoomMeetingId
+  formatZoomMeetingId,
+  splitCaptionsForSend
 } = require('./CaptionQueue');
 
 const JOIN_PAGES = {
@@ -102,6 +110,34 @@ function openInChrome(url) {
   }
 }
 
+async function withNativeDialog(appState, parent, open) {
+  const overlay = appState.overlayWindow;
+  const overlayVisible = !!(overlay && !overlay.isDestroyed() && overlay.isVisible());
+  const parentOnTop = !!(parent && !parent.isDestroyed() && parent.isAlwaysOnTop());
+  try {
+    if (overlayVisible) {
+      try { overlay.hide(); } catch { /* ignore */ }
+    }
+    if (parent && !parent.isDestroyed()) {
+      try { parent.setAlwaysOnTop(false); } catch { /* ignore */ }
+      try { parent.show(); parent.focus(); } catch { /* ignore */ }
+    }
+    return await open(parent && !parent.isDestroyed() ? parent : undefined);
+  } finally {
+    if (parent && !parent.isDestroyed() && parentOnTop) {
+      try {
+        parent.setAlwaysOnTop(true);
+        parent.show();
+        parent.focus();
+      } catch { /* ignore */ }
+    }
+    if (overlay && !overlay.isDestroyed() && overlayVisible) {
+      try { overlay.show(); } catch { /* ignore */ }
+      refreshUndetectable(appState);
+    }
+  }
+}
+
 function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = null) {
   ipcMain.handle('dictate', async (event, { channel, payload }) => {
     switch (channel) {
@@ -112,11 +148,12 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       case 'storage-set':
         return bridge.handleStorageSet(payload?.data);
       case 'get-settings':
+        appState.ensureSelfName?.();
         return appState.getAll();
       case 'set-undetectable':
-        appState.setUndetectable(!!payload?.value);
+        appState.setUndetectable(true);
         refreshUndetectable(appState);
-        return { success: true, undetectable: appState.isUndetectable() };
+        return { success: true, undetectable: true };
       case 'set-setting':
         if (payload?.key) appState.set(payload.key, payload.value);
         return { success: true };
@@ -130,10 +167,10 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     undetectable: appState.isUndetectable()
   }));
 
-  ipcMain.handle('overlay-set-undetectable', async (_event, payload) => {
-    appState.setUndetectable(!!payload?.value);
+  ipcMain.handle('overlay-set-undetectable', async () => {
+    appState.setUndetectable(true);
     refreshUndetectable(appState);
-    return { success: true, undetectable: appState.isUndetectable() };
+    return { success: true, undetectable: true };
   });
 
   ipcMain.handle('overlay-open-settings', async () => {
@@ -180,36 +217,65 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
 
     async function flushTranscript() {
       if (!transcriptStore) return null;
-      const chunk = transcriptStore.takeUnsentChunk();
-      if (!chunk.lines.length) return null;
-      const batch = transcriptStore.formatUnsent(chunk.lines);
-      if (!batch.trim()) return null;
-      const result = await bridge.forwardToChatGPT(batch);
-      if (result?.success) {
-        transcriptStore.markSent(chunk.lines);
-        desktopWatcher?.queue?.markSent(chunk.lines);
-        bridge.bridgeServer?.enqueuePayload?.('markMeetingTranscriptSent', {
-          lines: chunk.lines.map((line) => ({
-            author: line.author || '',
-            text: line.text || ''
-          }))
-        });
+      const mode = appState.get('captionMode') === 'mock' ? 'mock' : 'live';
+      const selfNames = [appState.get('selfName')];
+      let skipped = 0;
+
+      while (transcriptStore.hasUnsent()) {
+        const chunk = transcriptStore.takeUnsentChunk();
+        if (!chunk.lines.length) break;
+        const split = splitCaptionsForSend(chunk.lines, { mode, selfNames });
+        if (split.skip.length) {
+          transcriptStore.markSent(split.skip);
+          desktopWatcher?.queue?.markSent(split.skip);
+          skipped += split.skip.length;
+        }
+        if (!split.forward.length) continue;
+
+        const batch = transcriptStore.formatUnsent(split.forward);
+        if (!batch.trim()) {
+          transcriptStore.markSent(split.forward);
+          continue;
+        }
+        const result = await bridge.forwardToChatGPT(batch);
+        if (result?.success) {
+          transcriptStore.markSent(split.forward);
+          desktopWatcher?.queue?.markSent(split.forward);
+          bridge.bridgeServer?.enqueuePayload?.('markMeetingTranscriptSent', {
+            lines: split.forward.map((line) => ({
+              author: line.author || '',
+              text: line.text || ''
+            }))
+          });
+        }
+        const remaining = transcriptStore.getUnsent().length;
+        const n = split.forward.length;
+        const skippedNote = skipped ? ` · skipped ${skipped} of yours` : '';
+        return {
+          sent: !!result?.success,
+          success: !!result?.success,
+          error: result?.error,
+          status: result?.success
+            ? (remaining
+              ? `Sent ${n} captions${skippedNote} · ${remaining} still queued — click Send for the next part`
+              : `Sent ${n} caption${n === 1 ? '' : 's'} from transcript${skippedNote}`)
+            : result?.error,
+          source: 'transcript',
+          lineCount: n,
+          remaining,
+          skipped
+        };
       }
-      const remaining = transcriptStore.getUnsent().length;
-      const n = chunk.lines.length;
-      return {
-        sent: !!result?.success,
-        success: !!result?.success,
-        error: result?.error,
-        status: result?.success
-          ? (remaining
-            ? `Sent ${n} captions from transcript · ${remaining} still queued, click Send again`
-            : `Sent ${n} caption${n === 1 ? '' : 's'} from transcript`)
-          : result?.error,
-        source: 'transcript',
-        lineCount: n,
-        remaining
-      };
+
+      if (skipped) {
+        return {
+          sent: false,
+          success: true,
+          status: `Live mode — skipped ${skipped} of your caption${skipped === 1 ? '' : 's'}. Only other speakers are sent.`,
+          skipped
+        };
+      }
+      return null;
     }
 
     const first = await flushTranscript();
@@ -297,6 +363,86 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     return timeoutJoin;
   });
 
+  ipcMain.handle('overlay-send-screenshot', async () => {
+    const name = appState.getAgent?.()?.name || 'ChatGPT';
+    try {
+      const payload = await captureScreenForSend(appState);
+      if (!payload?.base64) {
+        return { success: false, sent: false, error: 'Could not capture the screen' };
+      }
+      const result = await bridge.forwardScreenshot(payload);
+      if (result?.success) {
+        return {
+          success: true,
+          sent: true,
+          status: result.status || `Sent screenshot to ${name}`
+        };
+      }
+      return {
+        success: false,
+        sent: false,
+        error: result?.error || `Could not send the screenshot to ${name}`
+      };
+    } catch (e) {
+      return { success: false, sent: false, error: e?.message || 'Screenshot send failed' };
+    }
+  });
+
+  ipcMain.handle('ai-context-get', async () => appState.getAiContextView());
+
+  ipcMain.handle('ai-context-save', async (_event, payload) => {
+    const saved = appState.saveAiContext(payload || {});
+    return { success: true, ...saved };
+  });
+
+  ipcMain.handle('ai-context-pick', async (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const kind = payload?.kind === 'jd' ? 'jd' : 'resume';
+    const choice = await withNativeDialog(appState, win, (parent) => dialog.showOpenDialog(parent, {
+      title: kind === 'jd' ? 'Upload job description' : 'Upload resume',
+      filters: [
+        { name: 'Documents', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'text', 'rtf'] }
+      ],
+      properties: ['openFile']
+    }));
+    if (choice.canceled || !choice.filePaths?.[0]) return { success: false, canceled: true };
+    try {
+      const extracted = await extractDocument(choice.filePaths[0]);
+      const limit = kind === 'jd' ? LIMITS.jdText : LIMITS.resumeText;
+      const clamped = clampField(extracted.text, limit);
+      return {
+        success: true,
+        kind,
+        fileName: extracted.fileName,
+        text: clamped.text,
+        truncated: clamped.truncated
+      };
+    } catch (e) {
+      return { success: false, error: e?.message || 'Could not read that file' };
+    }
+  });
+
+  async function sendAiContextNow() {
+    const message = buildPrimeOnlyMessage(appState.get('aiContext'));
+    if (!message) {
+      return { success: false, error: 'Add instructions, a resume, or a job description in Settings first' };
+    }
+    const result = await bridge.forwardToChatGPT(message, { raw: true, markApplied: true });
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Could not send context to the AI' };
+    }
+    const name = appState.getAgent()?.name || 'the AI';
+    return {
+      success: true,
+      context: appState.getAiContextView(),
+      status: `Sent context to ${name}`
+    };
+  }
+
+  ipcMain.handle('ai-context-send', async () => sendAiContextNow());
+
+  ipcMain.handle('overlay-send-context', async () => sendAiContextNow());
+
   ipcMain.handle('transcript-get', async () => {
     if (!transcriptStore) return { startedAt: Date.now(), platform: '', lines: [], text: '', count: 0 };
     const current = transcriptStore.getCurrent();
@@ -322,11 +468,11 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     const win = BrowserWindow.fromWebContents(event.sender);
     const started = transcriptStore.getCurrent().startedAt;
     const stamp = new Date(started || Date.now()).toISOString().slice(0, 16).replace(/[:T]/g, '-');
-    const choice = await dialog.showSaveDialog(win || undefined, {
+    const choice = await withNativeDialog(appState, win, (parent) => dialog.showSaveDialog(parent, {
       title: 'Export meeting transcript',
       defaultPath: `dictate-transcript-${stamp}.txt`,
       filters: [{ name: 'Text', extensions: ['txt'] }]
-    });
+    }));
     if (choice.canceled || !choice.filePath) return { success: false, canceled: true };
     return transcriptStore.exportTo(choice.filePath);
   });

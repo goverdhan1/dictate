@@ -12,7 +12,8 @@ const {
   parseZoomMeetingId,
   parseZoomPasscode,
   buildZoomJoinUrl,
-  formatZoomMeetingId
+  formatZoomMeetingId,
+  pickSelfDisplayName
 } = require('./CaptionQueue');
 
 const POLL_MS = 900;
@@ -237,6 +238,13 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
     this.transcriptStore?.ensure?.();
     const platform = String(payload?.platform || '').toLowerCase();
     const captions = asArray(payload?.captions);
+    const foundSelfName = pickSelfDisplayName(payload?.selfLabels);
+    if (foundSelfName) {
+      const namePlatform = platform
+        || detected.find((p) => p === 'teams' || p === 'zoom' || p === 'webex' || p === 'meet')
+        || '';
+      this.appState?.rememberMeetingSelfName?.(foundSelfName, namePlatform);
+    }
     let fp = `${platform}|${this.detected.join(',')}|${this.transcriptStore ? this.transcriptStore.unsentCount : ''}|`;
     for (const item of captions) {
       fp += `${item?.author || ''}:${item?.text || item || ''}\n`;
