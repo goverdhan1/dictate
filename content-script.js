@@ -1142,17 +1142,17 @@
     setupComposerObserver();
   }
 
+  function dictateStatusText() {
+    const state = getDictateState();
+    if (continuousMode && state === 'active') return 'Listening…';
+    if (continuousMode) return getDictateStartBtn() ? 'Ready' : 'Mic not found';
+    return getDictateStartBtn() ? 'Idle' : 'Mic not found';
+  }
+
   function updateControlStatus() {
     const status = document.getElementById('auto-dictate-status');
     if (!status) return;
-    const state = getDictateState();
-    if (continuousMode && state === 'active') {
-      status.textContent = 'Listening…';
-    } else if (continuousMode) {
-      status.textContent = getDictateStartBtn() ? 'Ready' : 'Mic not found';
-    } else {
-      status.textContent = getDictateStartBtn() ? 'Idle' : 'Mic not found';
-    }
+    status.textContent = dictateStatusText();
   }
 
   function stopContinuous(sendCurrent) {
@@ -1241,7 +1241,21 @@
     }
   });
 
+  if (window.__dictateElectron) {
+    window.__dictateControl = (action) => {
+      let ok = true;
+      if (action === 'start') startContinuous();
+      else if (action === 'stop') stopContinuous(true);
+      else if (action === 'submit') ok = submitCurrent();
+      return { success: ok !== false, status: dictateStatusText(), continuous: continuousMode };
+    };
+  }
+
   function injectButtons() {
+    if (window.__dictateElectron && window.__DICTATE_USE_NATIVE_OVERLAY__) {
+      document.getElementById('auto-dictate-controls')?.remove();
+      return;
+    }
     if (document.getElementById('auto-dictate-controls')) {
       updateControlStatus();
       return;

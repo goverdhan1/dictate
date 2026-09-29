@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   getCaptionMode() {
     return ipcRenderer.invoke('overlay-get-caption-mode');
   },
+  openDictateMenu(x, y) {
+    return ipcRenderer.invoke('overlay-dictate-menu', { x, y });
+  },
   send() {
     return ipcRenderer.invoke('overlay-send');
   },

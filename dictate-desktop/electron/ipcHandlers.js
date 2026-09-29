@@ -1,4 +1,4 @@
-const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
+const { ipcMain, BrowserWindow, Menu, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
 const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay, notifyOverlay } = require('./WindowHelper');
 const { captureScreenForSend } = require('./screenCapture');
@@ -307,12 +307,58 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     return { success: true };
   });
 
+  async function runDictateControl(action) {
+    const wc = appState.getChatGPTWebContents?.();
+    if (!wc) return { success: false, error: 'Agent page is not ready yet' };
+    try {
+      const frame = await bridge.findChatGPTFrame(wc, { requireInput: false });
+      const result = await (frame || wc).executeJavaScript(
+        `window.__dictateControl ? window.__dictateControl(${JSON.stringify(action || 'status')}) : null`,
+        true
+      );
+      if (!result) return { success: false, error: 'Dictate controls are still loading — try again in a moment' };
+      return result;
+    } catch (e) {
+      return { success: false, error: e?.message || 'Dictate control failed' };
+    }
+  }
+
+  ipcMain.handle('overlay-dictate-menu', async (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return { success: false };
+    const current = await runDictateControl('status');
+    const status = current?.status || current?.error || 'Unavailable';
+    const agentName = appState.getAgent?.()?.name || 'the AI';
+
+    const act = async (action, label) => {
+      const result = await runDictateControl(action);
+      bridge.relayToOverlay(result?.success === false && result?.error
+        ? { error: result.error }
+        : { status: `${label} · ${result?.status || 'Idle'}`, dictateStatus: result?.status || '' });
+    };
+
+    const menu = Menu.buildFromTemplate([
+      { label: `Status: ${status}`, enabled: false },
+      { type: 'separator' },
+      { label: 'Start Dictate', click: () => act('start', `Dictate started in ${agentName}`) },
+      { label: 'Submit', click: () => act('submit', 'Submitted') },
+      { label: 'Stop Dictate', click: () => act('stop', 'Dictate stopped') }
+    ]);
+    menu.popup({
+      window: win,
+      x: Math.round(Number(payload?.x) || 0),
+      y: Math.round(Number(payload?.y) || 0)
+    });
+    return { success: true, status };
+  });
+
   ipcMain.handle('overlay-send', async () => {
     const startedAt = Date.now();
     appState.lastSendResult = null;
 
     async function flushTranscript() {
       if (!transcriptStore) return null;
+      appState.ensureSelfName?.();
       const mode = appState.get('captionMode') === 'mock' ? 'mock' : 'live';
       const selfNames = [appState.get('selfName')];
       let skipped = 0;

@@ -442,7 +442,12 @@
    */
   function extractSelfDisplayName(label) {
     const value = String(label || '').replace(/\s+/g, ' ').trim();
-    if (value.length < 4 || value.length > 140) return '';
+    if (value.length < 4 || value.length > 240) return '';
+    const beforeParen = value.match(/([\p{L}][\p{L}\p{N}.'’\-]*(?:\s+[\p{L}][\p{L}\p{N}.'’\-]*){0,4})\s*\([^)]{0,40}\b(?:you|me)\b[^)]*\)/iu);
+    if (beforeParen) {
+      const fromTile = cleanSelfDisplayName(beforeParen[1]);
+      if (fromTile) return fromTile;
+    }
     let name = '';
     const paren = value.match(/^(.+?)\s*\(([^)]{0,48})\)\s*$/);
     if (paren && /\b(you|me)\b/i.test(paren[2])) {
@@ -490,7 +495,59 @@
       .trim();
   }
 
+  function isMarkedSelfAuthor(author) {
+    const value = String(author || '').replace(/\s+/g, ' ').trim();
+    if (!value) return false;
+    if (SELF_AUTHORS.has(authorMatchKey(value))) return true;
+    if (/\([^)]{0,40}\b(?:you|me)\b[^)]*\)/i.test(value)) return true;
+    if (/[-–—]\s*(?:you|me)\s*$/i.test(value)) return true;
+    if (/,\s*(?:you|me)\s*$/i.test(value)) return true;
+    return false;
+  }
+
+  function looksLikeSpeakerName(value) {
+    const name = String(value || '').replace(/\s+/g, ' ').trim();
+    if (name.length < 2 || name.length > 48) return false;
+    if (/[.!?]/.test(name)) return false;
+    const words = name.split(' ').filter(Boolean);
+    if (words.length > 5) return false;
+    if (words.some((word) => word.length > 24)) return false;
+    if (/^(you|me|host|guest|muted|unmuted|participant|participants|caption|captions)$/i.test(name)) return false;
+    return true;
+  }
+
+  /**
+   * Turn a caption blob into speaker lines.
+   * Accepts "Name: words", "Name (You): words", and a name on its own line before the words.
+   */
+  function splitSpokenLines(author, text) {
+    const rawAuthor = String(author || '').trim();
+    const raw = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!raw) return [];
+    const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    const out = [];
+    let pending = '';
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const labeled = line.match(/^(.{1,60}?):\s+(.+)$/);
+      if (labeled && (looksLikeSpeakerName(labeled[1]) || isMarkedSelfAuthor(labeled[1]) || extractSelfDisplayName(labeled[1]))) {
+        out.push({ author: labeled[1].trim(), text: labeled[2].trim() });
+        pending = '';
+        continue;
+      }
+      const next = lines[i + 1];
+      if (next && line.length <= 48 && (looksLikeSpeakerName(line) || isMarkedSelfAuthor(line))) {
+        pending = line;
+        continue;
+      }
+      out.push({ author: pending || rawAuthor, text: line });
+      pending = '';
+    }
+    return out.length ? out : [{ author: rawAuthor, text: raw }];
+  }
+
   function isSelfAuthor(author, selfNames) {
+    if (isMarkedSelfAuthor(author)) return true;
     const key = authorMatchKey(author);
     if (!key) return false;
     if (SELF_AUTHORS.has(key)) return true;
@@ -516,8 +573,15 @@
     const forward = [];
     const skip = [];
     for (const line of list) {
-      if (isSelfAuthor(line?.author, names)) skip.push(line);
-      else forward.push(line);
+      const parts = splitSpokenLines(line?.author, line?.text);
+      const spoken = parts.length ? parts : [{ author: line?.author || '', text: line?.text || '' }];
+      for (const part of spoken) {
+        const piece = spoken.length === 1 && part.author === (line?.author || '') && part.text === (line?.text || '')
+          ? line
+          : { ...line, author: part.author, text: part.text };
+        if (isSelfAuthor(piece?.author, names)) skip.push(piece);
+        else forward.push(piece);
+      }
     }
     return { forward, skip };
   }
@@ -553,6 +617,8 @@
     buildZoomJoinUrl,
     isSelfAuthor,
     extractSelfDisplayName,
+    splitSpokenLines,
+    isMarkedSelfAuthor,
     pickSelfDisplayName,
     splitCaptionsForSend
   };

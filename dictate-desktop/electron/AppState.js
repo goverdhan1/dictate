@@ -11,14 +11,33 @@ const {
 
 function readWindowsFullName() {
   if (process.platform !== 'win32') return '';
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "function Emit([string]$value) {",
+    "  $clean = $value.Trim()",
+    "  if ($clean.Length -ge 2) { Write-Output $clean; exit 0 }",
+    "}",
+    "try {",
+    "  $id = Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Office\\16.0\\Common\\Identity'",
+    "  Emit ([string]$id.ADUserDisplayName)",
+    "} catch {}",
+    "try {",
+    "  Add-Type -AssemblyName System.DirectoryServices.AccountManagement",
+    "  $user = [System.DirectoryServices.AccountManagement.UserPrincipal]::Current",
+    "  Emit ([string]$user.DisplayName)",
+    "} catch {}",
+    "try {",
+    "  Emit ([string]([adsi]\"WinNT://$env:USERDOMAIN/$env:USERNAME,user\").FullName)",
+    "} catch {}"
+  ].join('\n');
   try {
     const out = execFileSync('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      '([adsi]"WinNT://$env:USERDOMAIN/$env:USERNAME,user").FullName'
-    ], { encoding: 'utf8', timeout: 5000, windowsHide: true });
-    return String(out || '').replace(/\u0000/g, '').trim();
+      script
+    ], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+    return String(out || '').replace(/\u0000/g, '').trim().split(/\r?\n/).find((line) => line.trim()) || '';
   } catch {
     return '';
   }

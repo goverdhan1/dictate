@@ -159,6 +159,7 @@ app.whenReady().then(async () => {
     appState.set('lastZoomPasscode', '');
   } catch { /* ignore */ }
 
+  try { appState.ensureSelfName?.(); } catch { /* name can still arrive from the meeting */ }
   setupIpc(appState, bridge, desktopWatcher, transcriptStore);
   console.log('[Dictate] AI context IPC ready');
   bridgeServer.start();

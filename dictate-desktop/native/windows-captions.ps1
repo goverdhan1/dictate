@@ -242,14 +242,14 @@ function Note-SelfLabel([string]$label) {
 }
 
 function Find-SelfLabels($el, $budget) {
-  if ($budget.Value -le 0 -or $null -eq $el -or $script:selfLabels.Count -ge 3) { return }
+  if ($budget.Value -le 0 -or $null -eq $el -or $script:selfLabels.Count -ge 8) { return }
   $budget.Value--
   try { Note-SelfLabel ([string]$el.Current.Name) } catch { return }
-  if ($script:selfLabels.Count -ge 3) { return }
+  if ($script:selfLabels.Count -ge 8) { return }
   try {
     $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
     $child = $walker.GetFirstChild($el)
-    while ($null -ne $child -and $budget.Value -gt 0 -and $script:selfLabels.Count -lt 3) {
+    while ($null -ne $child -and $budget.Value -gt 0 -and $script:selfLabels.Count -lt 8) {
       $next = $walker.GetNextSibling($child)
       Find-SelfLabels $child $budget
       $child = $next
@@ -320,10 +320,10 @@ while ($true) {
         }
 
         $selfScanTick++
-        $deepNameScan = ($platform -eq 'meet' -or $platform -eq 'webex')
-        if ($deepNameScan -or (($selfScanTick % 3) -eq 1)) {
-          $limit = 220
-          if ($deepNameScan) { $limit = 900 }
+        $deepNameScan = ($platform -eq 'meet' -or $platform -eq 'webex' -or $platform -eq 'teams' -or $platform -eq 'zoom')
+        if ($deepNameScan -or (($selfScanTick % 2) -eq 1)) {
+          $limit = 500
+          if ($platform -eq 'meet' -or $platform -eq 'webex') { $limit = 900 }
           $selfBudget = @{ Value = $limit }
           Find-SelfLabels $w $selfBudget
         }

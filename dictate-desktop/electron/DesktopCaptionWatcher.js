@@ -13,7 +13,8 @@ const {
   parseZoomPasscode,
   buildZoomJoinUrl,
   formatZoomMeetingId,
-  pickSelfDisplayName
+  pickSelfDisplayName,
+  splitSpokenLines
 } = require('./CaptionQueue');
 
 const POLL_MS = 900;
@@ -259,21 +260,31 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
     for (const item of captions) {
       const author = item?.author || '';
       const text = item?.text || item || '';
-      if (!isSpokenCaptionText(text)) continue;
-      this.onTranscript({
-        at: Date.now(),
-        author,
-        text,
-        platform,
-        source: 'desktop'
-      });
-      if (normalizeCaptionText(text).length >= 2) {
+      const spoken = splitSpokenLines(author, text);
+      const pieces = spoken.length ? spoken : [{ author, text }];
+      for (const piece of pieces) {
+        if (!isSpokenCaptionText(piece.text)) continue;
+        const learned = pickSelfDisplayName([piece.author, `${piece.author}: ${piece.text}`]);
+        if (learned) {
+          const namePlatform = platform
+            || detected.find((p) => p === 'teams' || p === 'zoom' || p === 'webex' || p === 'meet')
+            || '';
+          this.appState?.rememberMeetingSelfName?.(learned, namePlatform);
+        }
+        this.onTranscript({
+          at: Date.now(),
+          author: piece.author,
+          text: piece.text,
+          platform,
+          source: 'desktop'
+        });
+      if (normalizeCaptionText(piece.text).length >= 2) {
         this.lastCaptionAt = Date.now();
         this.activePlatform = platform || this.activePlatform;
       }
       const entry = this.queue.remember({
-        author,
-        text,
+        author: piece.author,
+        text: piece.text,
         platform,
         source: 'desktop'
       });
@@ -281,6 +292,7 @@ foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'Zoom.exe'") {
         added += 1;
         this.lastCaptionAt = Date.now();
         this.activePlatform = platform || this.activePlatform;
+      }
       }
     }
 

@@ -59,6 +59,14 @@ assert(pickSelfDisplayName(['Goverdhan Koyalkar - You']) === 'Goverdhan Koyalkar
 assert(pickSelfDisplayName(['Me, Goverdhan Koyalkar']) === 'Goverdhan Koyalkar', 'Webex Me prefix');
 assert(pickSelfDisplayName(['You: Goverdhan Koyalkar']) === 'Goverdhan Koyalkar', 'name after You');
 assert(pickSelfDisplayName(['Me, leave the meeting']) === '', 'commands after Me are ignored');
+assert(pickSelfDisplayName(['Goverdhan Koyalkar (You): thanks for joining']) === 'Goverdhan Koyalkar', 'caption line with (You)');
+assert(isSelfAuthor('Goverdhan Koyalkar (You)', []), '(You) marker is self even without a saved name');
+assert(!isSelfAuthor('Priya Nair', []), 'another speaker is not self');
+const liveSplit = splitCaptionsForSend([
+  { author: '', text: 'Priya Nair: What is the timeline?\nGoverdhan Koyalkar (You): I can take that.' }
+], { mode: 'live', selfNames: ['Goverdhan Koyalkar'] });
+assert(liveSplit.forward.length === 1 && /timeline/i.test(liveSplit.forward[0].text), 'live send keeps the other speaker');
+assert(liveSplit.skip.length === 1 && /take that/i.test(liveSplit.skip[0].text), 'live send drops the signed-in speaker');
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
 process.exit(failed > 0 ? 1 : 0);

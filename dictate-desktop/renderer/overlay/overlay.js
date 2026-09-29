@@ -3,6 +3,7 @@ const settingsBtn = document.getElementById('settings-btn');
 const sendBtn = document.getElementById('send-btn');
 const shotBtn = document.getElementById('shot-btn');
 const contextBtn = document.getElementById('context-btn');
+const dictateMenuBtn = document.getElementById('dictate-menu-btn');
 const resizeHandle = document.getElementById('resize-handle');
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
@@ -341,6 +342,12 @@ if (window.dictateOverlay) {
   }).catch(() => applyCaptionMode('live'));
   settingsBtn?.addEventListener('click', () => {
     window.dictateOverlay.openSettings?.().catch(() => {});
+  });
+  dictateMenuBtn?.addEventListener('mousedown', (e) => e.stopPropagation());
+  dictateMenuBtn?.addEventListener('click', () => {
+    const rect = dictateMenuBtn.getBoundingClientRect();
+    window.dictateOverlay.openDictateMenu?.(rect.left, rect.bottom + 2)
+      .catch((e) => setStatus(String(e?.message || e), true));
   });
   contextBtn?.addEventListener('click', handleSendContext);
   shotBtn?.addEventListener('click', handleSendScreenshot);
