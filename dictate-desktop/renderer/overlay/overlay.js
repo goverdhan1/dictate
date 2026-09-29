@@ -158,8 +158,15 @@ function setStatus(message, isError = false, join = null) {
   }
 }
 
+function applyCaptionMode(mode) {
+  const live = mode !== 'mock';
+  if (!hideBtn) return;
+  hideBtn.hidden = live;
+}
+
 function render(data) {
   if (!data) return;
+  if (data.captionMode) applyCaptionMode(data.captionMode);
   if (data.agent?.id) {
     applyAgentUi(data.agent);
   }
@@ -325,7 +332,13 @@ window.addEventListener('unhandledrejection', (event) => {
 
 if (window.dictateOverlay) {
   window.dictateOverlay.onData(render);
-  hideBtn.addEventListener('click', () => window.dictateOverlay.hide());
+  hideBtn?.addEventListener('click', () => {
+    if (hideBtn.hidden) return;
+    window.dictateOverlay.hide();
+  });
+  window.dictateOverlay.getCaptionMode?.().then((res) => {
+    applyCaptionMode(res?.captionMode);
+  }).catch(() => applyCaptionMode('live'));
   settingsBtn?.addEventListener('click', () => {
     window.dictateOverlay.openSettings?.().catch(() => {});
   });

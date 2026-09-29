@@ -1,6 +1,6 @@
 const { ipcMain, BrowserWindow, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
-const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay } = require('./WindowHelper');
+const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay, notifyOverlay } = require('./WindowHelper');
 const { captureScreenForSend } = require('./screenCapture');
 const { listProviders, publicProvider } = require('./aiProviders');
 const {
@@ -133,12 +133,95 @@ async function withNativeDialog(appState, parent, open) {
     }
     if (overlay && !overlay.isDestroyed() && overlayVisible) {
       try { overlay.show(); } catch { /* ignore */ }
-      refreshUndetectable(appState);
     }
+    refreshUndetectable(appState);
   }
 }
 
+const aiContextIpcBound = new WeakSet();
+
+function bindAiContextIpc(ipc, appState, bridge) {
+  if (!ipc || aiContextIpcBound.has(ipc)) return;
+  aiContextIpcBound.add(ipc);
+
+  ipc.handle('ai-context-get', async () => {
+    try {
+      return appState.getAiContextView();
+    } catch (e) {
+      return { success: false, error: e?.message || 'Could not load AI context' };
+    }
+  });
+
+  ipc.handle('ai-context-save', async (_event, payload) => {
+    try {
+      const saved = appState.saveAiContext(payload || {});
+      return { success: true, ...saved };
+    } catch (e) {
+      return { success: false, error: e?.message || 'Could not save context' };
+    }
+  });
+
+  ipc.handle('ai-context-pick', async (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const kind = payload?.kind === 'jd' ? 'jd' : 'resume';
+    const choice = await withNativeDialog(appState, win, (parent) => dialog.showOpenDialog(parent, {
+      title: kind === 'jd' ? 'Upload job description' : 'Upload resume',
+      filters: [
+        { name: 'Documents', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'text', 'rtf'] }
+      ],
+      properties: ['openFile']
+    }));
+    if (choice.canceled || !choice.filePaths?.[0]) return { success: false, canceled: true };
+    try {
+      const extracted = await extractDocument(choice.filePaths[0]);
+      const limit = kind === 'jd' ? LIMITS.jdText : LIMITS.resumeText;
+      const clamped = clampField(extracted.text, limit);
+      return {
+        success: true,
+        kind,
+        fileName: extracted.fileName,
+        text: clamped.text,
+        truncated: clamped.truncated
+      };
+    } catch (e) {
+      return { success: false, error: e?.message || 'Could not read that file' };
+    }
+  });
+
+  ipc.handle('ai-context-send', async () => sendAiContextNow(appState, bridge));
+
+  ipc.handle('overlay-send-context', async () => sendAiContextNow(appState, bridge));
+}
+
+async function sendAiContextNow(appState, bridge) {
+  const message = buildPrimeOnlyMessage(appState.get('aiContext'));
+  if (!message) {
+    return { success: false, error: 'Add instructions, a resume, or a job description in Settings first' };
+  }
+  const result = await bridge.forwardToChatGPT(message, { raw: true, markApplied: true });
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Could not send context to the AI' };
+  }
+  const name = appState.getAgent()?.name || 'the AI';
+  return {
+    success: true,
+    context: appState.getAiContextView(),
+    status: `Sent context to ${name}`
+  };
+}
+
 function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = null) {
+  bindAiContextIpc(ipcMain, appState, bridge);
+  const { app } = require('electron');
+  app.on('web-contents-created', (_event, contents) => {
+    bindAiContextIpc(contents.ipc, appState, bridge);
+    const bindFrame = () => {
+      try { bindAiContextIpc(contents.mainFrame?.ipc, appState, bridge); } catch { /* ignore */ }
+    };
+    contents.on('did-finish-load', bindFrame);
+    bindFrame();
+  });
+
   ipcMain.handle('dictate', async (event, { channel, payload }) => {
     switch (channel) {
       case 'runtime-message':
@@ -156,6 +239,11 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
         return { success: true, undetectable: true };
       case 'set-setting':
         if (payload?.key) appState.set(payload.key, payload.value);
+        if (payload?.key === 'captionMode') {
+          notifyOverlay(appState, {
+            captionMode: payload.value === 'mock' ? 'mock' : 'live'
+          });
+        }
         return { success: true };
       default:
         return { success: false, error: 'Unknown channel' };
@@ -204,7 +292,15 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     return { success: true };
   });
 
+  ipcMain.handle('overlay-get-caption-mode', async () => ({
+    success: true,
+    captionMode: appState.get('captionMode') === 'mock' ? 'mock' : 'live'
+  }));
+
   ipcMain.handle('overlay-hide', async () => {
+    if (appState.get('captionMode') !== 'mock') {
+      return { success: false, error: 'Close is unavailable in Live mode' };
+    }
     if (appState.overlayWindow && !appState.overlayWindow.isDestroyed()) {
       appState.overlayWindow.hide();
     }
@@ -387,61 +483,6 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       return { success: false, sent: false, error: e?.message || 'Screenshot send failed' };
     }
   });
-
-  ipcMain.handle('ai-context-get', async () => appState.getAiContextView());
-
-  ipcMain.handle('ai-context-save', async (_event, payload) => {
-    const saved = appState.saveAiContext(payload || {});
-    return { success: true, ...saved };
-  });
-
-  ipcMain.handle('ai-context-pick', async (event, payload) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    const kind = payload?.kind === 'jd' ? 'jd' : 'resume';
-    const choice = await withNativeDialog(appState, win, (parent) => dialog.showOpenDialog(parent, {
-      title: kind === 'jd' ? 'Upload job description' : 'Upload resume',
-      filters: [
-        { name: 'Documents', extensions: ['pdf', 'docx', 'txt', 'md', 'markdown', 'text', 'rtf'] }
-      ],
-      properties: ['openFile']
-    }));
-    if (choice.canceled || !choice.filePaths?.[0]) return { success: false, canceled: true };
-    try {
-      const extracted = await extractDocument(choice.filePaths[0]);
-      const limit = kind === 'jd' ? LIMITS.jdText : LIMITS.resumeText;
-      const clamped = clampField(extracted.text, limit);
-      return {
-        success: true,
-        kind,
-        fileName: extracted.fileName,
-        text: clamped.text,
-        truncated: clamped.truncated
-      };
-    } catch (e) {
-      return { success: false, error: e?.message || 'Could not read that file' };
-    }
-  });
-
-  async function sendAiContextNow() {
-    const message = buildPrimeOnlyMessage(appState.get('aiContext'));
-    if (!message) {
-      return { success: false, error: 'Add instructions, a resume, or a job description in Settings first' };
-    }
-    const result = await bridge.forwardToChatGPT(message, { raw: true, markApplied: true });
-    if (!result?.success) {
-      return { success: false, error: result?.error || 'Could not send context to the AI' };
-    }
-    const name = appState.getAgent()?.name || 'the AI';
-    return {
-      success: true,
-      context: appState.getAiContextView(),
-      status: `Sent context to ${name}`
-    };
-  }
-
-  ipcMain.handle('ai-context-send', async () => sendAiContextNow());
-
-  ipcMain.handle('overlay-send-context', async () => sendAiContextNow());
 
   ipcMain.handle('transcript-get', async () => {
     if (!transcriptStore) return { startedAt: Date.now(), platform: '', lines: [], text: '', count: 0 };

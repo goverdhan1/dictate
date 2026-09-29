@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   hide() {
     return ipcRenderer.invoke('overlay-hide');
   },
+  getCaptionMode() {
+    return ipcRenderer.invoke('overlay-get-caption-mode');
+  },
   send() {
     return ipcRenderer.invoke('overlay-send');
   },

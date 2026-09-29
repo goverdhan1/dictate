@@ -160,6 +160,7 @@ app.whenReady().then(async () => {
   } catch { /* ignore */ }
 
   setupIpc(appState, bridge, desktopWatcher, transcriptStore);
+  console.log('[Dictate] AI context IPC ready');
   bridgeServer.start();
   desktopWatcher.start();
 

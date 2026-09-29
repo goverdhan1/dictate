@@ -324,13 +324,34 @@ function createSettingsWindow(appState) {
     webPreferences: {
       preload: path.join(__dirname, 'preload', 'settings-preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'settings', 'index.html'));
   appState.settingsWindow = win;
-  win.on('closed', () => { appState.settingsWindow = null; });
+
+  const protect = () => {
+    if (!win.isDestroyed()) applyUndetectable(win, appState.isUndetectable(), appState);
+  };
+  win.once('ready-to-show', () => {
+    protect();
+    setTimeout(protect, 100);
+    setTimeout(protect, 500);
+  });
+  win.on('show', protect);
+  win.on('focus', protect);
+  win.on('blur', () => {
+    if (appState.isUndetectable() && isWin && !win.isDestroyed()) {
+      try { win.setAlwaysOnTop(true, 'screen-saver', 1); } catch { /* ignore */ }
+      protect();
+    }
+  });
+  win.on('closed', () => {
+    stopStealthKeepAlive(win);
+    appState.settingsWindow = null;
+  });
   return win;
 }
 
@@ -344,6 +365,10 @@ function showSettingsWindow(appState) {
   win.show();
   win.focus();
   try { win.moveTop(); } catch { /* ignore */ }
+  applyUndetectable(win, appState.isUndetectable(), appState);
+  setTimeout(() => {
+    if (!win.isDestroyed()) applyUndetectable(win, appState.isUndetectable(), appState);
+  }, 100);
   return true;
 }
 
@@ -372,8 +397,8 @@ function showOverlayWindow(appState) {
 
 function refreshUndetectable(appState) {
   const enable = appState.isUndetectable();
-  if (appState.overlayWindow && !appState.overlayWindow.isDestroyed()) {
-    applyUndetectable(appState.overlayWindow, enable, appState);
+  for (const win of [appState.overlayWindow, appState.settingsWindow]) {
+    if (win && !win.isDestroyed()) applyUndetectable(win, enable, appState);
   }
   notifyOverlayUndetectable(appState);
 }
@@ -433,5 +458,6 @@ module.exports = {
   configureChatGPTWebContents,
   layoutAgentView,
   loadAgentInOverlay,
+  notifyOverlay,
   OVERLAY_TOP_CHROME
 };
