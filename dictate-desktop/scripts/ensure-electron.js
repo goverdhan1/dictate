@@ -9,15 +9,23 @@ const { execSync } = require('child_process');
 const electronDir = path.join(__dirname, '..', 'node_modules', 'electron');
 const distDir = path.join(electronDir, 'dist');
 const pathFile = path.join(electronDir, 'path.txt');
-const platformPath = process.platform === 'win32' ? 'electron.exe' : 'electron';
+const platformPath =
+  process.platform === 'win32'
+    ? 'electron.exe'
+    : process.platform === 'darwin'
+      ? path.join('Electron.app', 'Contents', 'MacOS', 'Electron')
+      : 'electron';
 const exePath = path.join(distDir, platformPath);
 
 function electronReady() {
   try {
-    const recorded = fs.readFileSync(pathFile, 'utf8').trim();
-    return fs.existsSync(exePath) && recorded === platformPath;
+    if (!fs.existsSync(exePath)) return false;
+    const recorded = fs.readFileSync(pathFile, 'utf8').trim().replace(/\\/g, '/');
+    const expected = platformPath.replace(/\\/g, '/');
+    // Accept either a matching path.txt or a present platform binary.
+    return !recorded || recorded === expected || recorded.endsWith('Electron') || recorded.endsWith('electron') || recorded.endsWith('electron.exe');
   } catch {
-    return false;
+    return fs.existsSync(exePath);
   }
 }
 
@@ -34,6 +42,8 @@ async function downloadAndExtract() {
     force: true
   });
 
+  // Re-extract into a clean folder to avoid EEXIST symlink errors on macOS.
+  fs.rmSync(distDir, { recursive: true, force: true });
   fs.mkdirSync(distDir, { recursive: true });
 
   if (process.platform === 'win32') {
