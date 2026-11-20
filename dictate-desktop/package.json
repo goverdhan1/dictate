@@ -2,6 +2,7 @@
   "name": "dictate-desktop",
   "version": "1.0.3",
   "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for virtual meetings",
+  "homepage": "https://github.com/goverdhan1/dictate",
   "main": "electron/main.js",
   "author": "Dictate",
   "license": "MIT",
