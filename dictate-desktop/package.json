@@ -1,6 +1,6 @@
 {
   "name": "dictate-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for virtual meetings",
   "main": "electron/main.js",
   "author": "Dictate",
