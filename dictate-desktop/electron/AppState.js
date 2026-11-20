@@ -51,6 +51,7 @@ const store = new Store({
     autoForwardMode: 'off',
     showAnswerOverlay: true,
     enabled: true,
+    overlayOpacity: 1,
     agentProvider: DEFAULT_PROVIDER_ID,
     captionMode: 'live',
     selfName: '',

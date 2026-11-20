@@ -34,6 +34,18 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   resizeBy(dx, dy) {
     return ipcRenderer.invoke('overlay-resize-by', { dx, dy });
   },
+  getWindowChrome() {
+    return ipcRenderer.invoke('overlay-get-window-chrome');
+  },
+  setOpacity(opacity) {
+    return ipcRenderer.invoke('overlay-set-opacity', { opacity });
+  },
+  toggleCompact() {
+    return ipcRenderer.invoke('overlay-toggle-compact');
+  },
+  setCompact(compact) {
+    return ipcRenderer.invoke('overlay-set-compact', { compact });
+  },
   openSettings() {
     return ipcRenderer.invoke('overlay-open-settings');
   },

@@ -157,6 +157,97 @@
       #hide-btn:hover {
         background: rgba(255,255,255,.1);
       }
+      .opacity-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 28px;
+        padding: 0 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.22);
+        background: rgba(255,255,255,.06);
+        -webkit-app-region: no-drag;
+      }
+      .opacity-control:hover {
+        background: rgba(255,255,255,.1);
+      }
+      .opacity-control svg {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        opacity: 0.75;
+      }
+      #opacity-slider {
+        -webkit-app-region: no-drag;
+        width: 72px;
+        height: 16px;
+        margin: 0;
+        padding: 0;
+        cursor: pointer;
+        accent-color: #93c5fd;
+        background: transparent;
+      }
+      #compact-btn {
+        background: transparent;
+        color: #fff;
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+        line-height: 1;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #compact-btn:hover {
+        background: rgba(255,255,255,.1);
+      }
+      .compact-icon {
+        display: none;
+        width: 100%;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        -webkit-app-region: drag;
+        cursor: pointer;
+        background: radial-gradient(circle at 30% 25%, #3b82f6, #1e3a8a 70%);
+      }
+      .compact-icon-glyph {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #fff;
+        background: rgba(255,255,255,.14);
+        border: 1px solid rgba(255,255,255,.28);
+        box-shadow: 0 4px 14px rgba(0,0,0,.35);
+        -webkit-app-region: no-drag;
+        cursor: pointer;
+      }
+      .compact-icon-glyph:hover {
+        background: rgba(255,255,255,.22);
+      }
+      body.compact .header,
+      body.compact .status,
+      body.compact .chatgpt-host,
+      body.compact .resize-handle {
+        display: none !important;
+      }
+      body.compact .panel {
+        background: transparent;
+      }
+      body.compact,
+      body.compact html {
+        background: transparent;
+      }
+      body.compact .compact-icon {
+        display: flex;
+      }
       .status {
         flex-shrink: 0;
         padding: 6px 12px;
@@ -274,6 +365,14 @@
           <button id="context-btn" type="button" title="Send the saved resume, job description, and instructions to the selected AI">Context</button>
           <button id="shot-btn" type="button" title="Capture the screen and ask the selected agent for an answer">Screenshot</button>
           <button id="send-btn" type="button" title="Send saved unsent captions to the selected agent">Send</button>
+          <label class="opacity-control" title="Window opacity" aria-label="Window opacity">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" opacity="0.85"/>
+            </svg>
+            <input id="opacity-slider" type="range" min="30" max="100" step="1" value="100" />
+          </label>
+          <button id="compact-btn" type="button" title="Minimize to icon" aria-label="Minimize to icon">–</button>
           <button id="hide-btn" type="button" title="Hide" hidden>×</button>
         </div>
       </div>
@@ -285,6 +384,9 @@
         <div class="chatgpt-loading" id="chatgpt-loading">Loading ChatGPT…</div>
       </div>
       <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+      <div class="compact-icon" id="compact-icon" title="Restore Dictate">
+        <button class="compact-icon-glyph" id="expand-btn" type="button" title="Restore window" aria-label="Restore window">D</button>
+      </div>
     </div>
     <script src="overlay.js"></script>
   </body>

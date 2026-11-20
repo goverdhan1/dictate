@@ -4,6 +4,9 @@ const sendBtn = document.getElementById('send-btn');
 const shotBtn = document.getElementById('shot-btn');
 const contextBtn = document.getElementById('context-btn');
 const dictateMenuBtn = document.getElementById('dictate-menu-btn');
+const compactBtn = document.getElementById('compact-btn');
+const expandBtn = document.getElementById('expand-btn');
+const opacitySlider = document.getElementById('opacity-slider');
 const resizeHandle = document.getElementById('resize-handle');
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
@@ -15,6 +18,7 @@ const agentSelect = document.getElementById('agent-select');
 let sendBusy = false;
 let shotBusy = false;
 let contextBusy = false;
+let isCompact = false;
 let resizePointerId = null;
 let resizeLastX = 0;
 let resizeLastY = 0;
@@ -24,6 +28,7 @@ let currentAgent = { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com' 
 let lastMeetingId = '';
 let lastMeetingIdDisplay = '';
 let loadingWatchdog = null;
+let opacitySyncing = false;
 
 function clearLoadingWatchdog() {
   if (loadingWatchdog) {
@@ -165,9 +170,55 @@ function applyCaptionMode(mode) {
   hideBtn.hidden = live;
 }
 
+function applyCompactUi(compact) {
+  isCompact = !!compact;
+  document.body.classList.toggle('compact', isCompact);
+  if (compactBtn) {
+    compactBtn.textContent = isCompact ? '□' : '–';
+    compactBtn.title = isCompact ? 'Restore window' : 'Minimize to icon';
+    compactBtn.setAttribute('aria-label', compactBtn.title);
+  }
+  if (resizeHandle) {
+    resizeHandle.hidden = isCompact;
+  }
+}
+
+function applyOpacityUi(opacity) {
+  if (!opacitySlider) return;
+  const pct = Math.round(Math.min(1, Math.max(0.3, Number(opacity) || 1)) * 100);
+  opacitySyncing = true;
+  opacitySlider.value = String(pct);
+  opacitySlider.title = `Opacity ${pct}%`;
+  opacitySyncing = false;
+}
+
+async function handleToggleCompact() {
+  if (!window.dictateOverlay?.toggleCompact) return;
+  try {
+    const result = await window.dictateOverlay.toggleCompact();
+    if (typeof result?.compact === 'boolean') applyCompactUi(result.compact);
+  } catch (e) {
+    setStatus(String(e?.message || e), true);
+  }
+}
+
+async function handleOpacityInput() {
+  if (opacitySyncing || !opacitySlider || !window.dictateOverlay?.setOpacity) return;
+  const opacity = Number(opacitySlider.value) / 100;
+  opacitySlider.title = `Opacity ${opacitySlider.value}%`;
+  try {
+    const result = await window.dictateOverlay.setOpacity(opacity);
+    if (typeof result?.opacity === 'number') applyOpacityUi(result.opacity);
+  } catch (e) {
+    setStatus(String(e?.message || e), true);
+  }
+}
+
 function render(data) {
   if (!data) return;
   if (data.captionMode) applyCaptionMode(data.captionMode);
+  if (typeof data.compact === 'boolean') applyCompactUi(data.compact);
+  if (typeof data.opacity === 'number') applyOpacityUi(data.opacity);
   if (data.agent?.id) {
     applyAgentUi(data.agent);
   }
@@ -289,6 +340,7 @@ function setupResize() {
   if (!resizeHandle || !window.dictateOverlay?.resizeBy) return;
 
   resizeHandle.addEventListener('pointerdown', (e) => {
+    if (isCompact) return;
     e.preventDefault();
     e.stopPropagation();
     resizePointerId = e.pointerId;
@@ -298,7 +350,7 @@ function setupResize() {
   });
 
   resizeHandle.addEventListener('pointermove', (e) => {
-    if (resizePointerId !== e.pointerId) return;
+    if (isCompact || resizePointerId !== e.pointerId) return;
     const dx = e.screenX - resizeLastX;
     const dy = e.screenY - resizeLastY;
     if (dx || dy) {
@@ -378,6 +430,26 @@ if (window.dictateOverlay) {
     }
   });
   setupResize();
+  compactBtn?.addEventListener('click', () => {
+    handleToggleCompact().catch(() => {});
+  });
+  expandBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleToggleCompact().catch(() => {});
+  });
+  opacitySlider?.addEventListener('mousedown', (e) => e.stopPropagation());
+  opacitySlider?.addEventListener('pointerdown', (e) => e.stopPropagation());
+  opacitySlider?.addEventListener('input', () => {
+    handleOpacityInput().catch(() => {});
+  });
+  opacitySlider?.addEventListener('change', () => {
+    handleOpacityInput().catch(() => {});
+  });
+  window.dictateOverlay.getWindowChrome?.().then((res) => {
+    if (typeof res?.compact === 'boolean') applyCompactUi(res.compact);
+    if (typeof res?.opacity === 'number') applyOpacityUi(res.opacity);
+  }).catch(() => {});
   agentSelect?.addEventListener('mousedown', (e) => e.stopPropagation());
   agentSelect?.addEventListener('change', () => {
     loadAgent(agentSelect.value).catch((e) => setStatus(String(e?.message || e), true));

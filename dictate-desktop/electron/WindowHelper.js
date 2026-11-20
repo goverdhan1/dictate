@@ -9,20 +9,117 @@ const isWin = process.platform === 'win32';
 
 /** Header chrome height in the overlay renderer (matches index.html). */
 const OVERLAY_TOP_CHROME = 48;
+const OVERLAY_MIN_WIDTH = 420;
+const OVERLAY_MIN_HEIGHT = 480;
+const OVERLAY_COMPACT_SIZE = 52;
+const OVERLAY_OPACITY_MIN = 0.3;
+const OVERLAY_OPACITY_MAX = 1;
 const AGENT_PARTITION = 'persist:dictate-agent';
+
+function clampOverlayOpacity(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return OVERLAY_OPACITY_MAX;
+  return Math.min(OVERLAY_OPACITY_MAX, Math.max(OVERLAY_OPACITY_MIN, n));
+}
+
+function getOverlayOpacity(appState) {
+  return clampOverlayOpacity(appState?.get?.('overlayOpacity') ?? OVERLAY_OPACITY_MAX);
+}
+
+function applyOverlayOpacity(win, opacity) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.setOpacity(clampOverlayOpacity(opacity));
+  } catch (e) {
+    console.warn('[Dictate] setOpacity failed:', e?.message || e);
+  }
+}
+
+function setOverlayOpacity(appState, opacity) {
+  const next = clampOverlayOpacity(opacity);
+  appState?.set?.('overlayOpacity', next);
+  const win = appState?.overlayWindow;
+  if (win && !win.isDestroyed()) applyOverlayOpacity(win, next);
+  notifyOverlay(appState, { opacity: next });
+  return next;
+}
+
+function isOverlayCompact(appState) {
+  return !!appState?.overlayCompact;
+}
+
+function setOverlayCompact(appState, compact) {
+  const win = appState?.overlayWindow;
+  if (!win || win.isDestroyed()) return { success: false, compact: isOverlayCompact(appState) };
+  const next = !!compact;
+  if (next === isOverlayCompact(appState)) {
+    return { success: true, compact: next };
+  }
+
+  if (next) {
+    appState.overlayRestoredBounds = win.getBounds();
+    appState.overlayCompact = true;
+    try {
+      win.setMinimumSize(OVERLAY_COMPACT_SIZE, OVERLAY_COMPACT_SIZE);
+    } catch {
+      /* ignore */
+    }
+    const bounds = win.getBounds();
+    win.setBounds({
+      x: bounds.x + Math.max(0, bounds.width - OVERLAY_COMPACT_SIZE),
+      y: bounds.y,
+      width: OVERLAY_COMPACT_SIZE,
+      height: OVERLAY_COMPACT_SIZE
+    });
+  } else {
+    const restored = appState.overlayRestoredBounds;
+    appState.overlayCompact = false;
+    appState.overlayRestoredBounds = null;
+    try {
+      win.setMinimumSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT);
+    } catch {
+      /* ignore */
+    }
+    if (restored && Number.isFinite(restored.width) && Number.isFinite(restored.height)) {
+      win.setBounds({
+        x: restored.x,
+        y: restored.y,
+        width: Math.max(OVERLAY_MIN_WIDTH, restored.width),
+        height: Math.max(OVERLAY_MIN_HEIGHT, restored.height)
+      });
+    } else {
+      const { width } = screen.getPrimaryDisplay().workAreaSize;
+      win.setBounds({
+        width: 720,
+        height: 760,
+        x: width - 740,
+        y: 24
+      });
+    }
+  }
+
+  layoutAgentView(appState);
+  notifyOverlay(appState, { compact: next });
+  return { success: true, compact: next };
+}
+
+function toggleOverlayCompact(appState) {
+  return setOverlayCompact(appState, !isOverlayCompact(appState));
+}
 
 /** Re-apply capture exclusion while the overlay stays visible (Teams can drop affinity). */
 const stealthTimers = new WeakMap();
 
-function applyContentProtection(win, enable) {
+function applyContentProtection(win, enable, intendedOpacity = null) {
   if (!win || win.isDestroyed()) return;
   try {
     // Layered-window nudge: some Win10/11 builds only honor affinity after opacity touches WS_EX_LAYERED.
-    const current = win.getOpacity();
-    if (current >= 0.999) win.setOpacity(0.99);
+    const target = clampOverlayOpacity(
+      intendedOpacity == null ? win.getOpacity() : intendedOpacity
+    );
+    if (target >= 0.999) win.setOpacity(0.99);
     win.setContentProtection(!!enable);
-    if (current >= 0.999) win.setOpacity(1.0);
-    else if (Math.abs(current - win.getOpacity()) > 0.001) win.setOpacity(current);
+    applyOverlayOpacity(win, target);
   } catch (e) {
     console.warn('[Dictate] setContentProtection failed:', e?.message || e);
   }
@@ -64,7 +161,10 @@ function startStealthKeepAlive(win, appState) {
 
 function applyUndetectable(win, enable, appState = null) {
   if (!win || win.isDestroyed()) return;
-  applyContentProtection(win, enable);
+  const intendedOpacity = appState && win === appState.overlayWindow
+    ? getOverlayOpacity(appState)
+    : null;
+  applyContentProtection(win, enable, intendedOpacity);
   if (isMac && enable) {
     applyMacStealth(win);
   }
@@ -121,8 +221,8 @@ function layoutAgentView(appState, { loading = null, statusExtra = 0 } = {}) {
   const isLoading = appState.agentLoading === true;
   const [cw, ch] = win.getContentSize();
   const top = OVERLAY_TOP_CHROME + (statusExtra || 0);
-  if (isLoading) {
-    // Keep the HTML loading cover visible by collapsing the BrowserView.
+  if (isOverlayCompact(appState) || isLoading) {
+    // Compact icon mode and loading cover both collapse the BrowserView.
     view.setBounds({ x: 0, y: top, width: Math.max(0, cw), height: 0 });
     return;
   }
@@ -238,8 +338,8 @@ function createOverlayWindow(appState, onChatGPTReady) {
   const win = new BrowserWindow({
     width: 720,
     height: 760,
-    minWidth: 420,
-    minHeight: 480,
+    minWidth: OVERLAY_MIN_WIDTH,
+    minHeight: OVERLAY_MIN_HEIGHT,
     x: width - 740,
     y: 24,
     frame: false,
@@ -260,13 +360,20 @@ function createOverlayWindow(appState, onChatGPTReady) {
   });
 
   appState.overlayWindow = win;
+  appState.overlayCompact = false;
+  appState.overlayRestoredBounds = null;
   attachAgentBrowserView(win, appState, onChatGPTReady);
   win.loadFile(path.join(__dirname, '..', 'renderer', 'overlay', 'index.html'));
 
   win.once('ready-to-show', () => {
+    applyOverlayOpacity(win, getOverlayOpacity(appState));
     applyUndetectable(win, appState.isUndetectable(), appState);
     win.show();
     layoutAgentView(appState);
+    notifyOverlay(appState, {
+      compact: false,
+      opacity: getOverlayOpacity(appState)
+    });
     setTimeout(() => {
       if (!win.isDestroyed()) applyUndetectable(win, appState.isUndetectable(), appState);
     }, 100);
@@ -459,5 +566,12 @@ module.exports = {
   layoutAgentView,
   loadAgentInOverlay,
   notifyOverlay,
-  OVERLAY_TOP_CHROME
+  getOverlayOpacity,
+  setOverlayOpacity,
+  isOverlayCompact,
+  setOverlayCompact,
+  toggleOverlayCompact,
+  OVERLAY_TOP_CHROME,
+  OVERLAY_OPACITY_MIN,
+  OVERLAY_OPACITY_MAX
 };

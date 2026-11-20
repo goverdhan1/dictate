@@ -1,6 +1,16 @@
 const { ipcMain, BrowserWindow, Menu, clipboard, dialog, shell } = require('electron');
 const { spawn } = require('child_process');
-const { refreshUndetectable, showSettingsWindow, loadAgentInOverlay, notifyOverlay } = require('./WindowHelper');
+const {
+  refreshUndetectable,
+  showSettingsWindow,
+  loadAgentInOverlay,
+  notifyOverlay,
+  getOverlayOpacity,
+  setOverlayOpacity,
+  isOverlayCompact,
+  setOverlayCompact,
+  toggleOverlayCompact
+} = require('./WindowHelper');
 const { captureScreenForSend } = require('./screenCapture');
 const { listProviders, publicProvider } = require('./aiProviders');
 const {
@@ -589,6 +599,7 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
   ipcMain.handle('overlay-resize-by', (event, { dx, dy }) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return { success: false };
+    if (isOverlayCompact(appState)) return { success: false, compact: true };
     const bounds = win.getBounds();
     win.setBounds({
       x: bounds.x,
@@ -597,6 +608,23 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
       height: Math.max(480, bounds.height + Math.round(dy || 0))
     });
     return { success: true };
+  });
+
+  ipcMain.handle('overlay-get-window-chrome', async () => ({
+    success: true,
+    compact: isOverlayCompact(appState),
+    opacity: getOverlayOpacity(appState)
+  }));
+
+  ipcMain.handle('overlay-set-opacity', async (_event, payload) => {
+    const opacity = setOverlayOpacity(appState, payload?.opacity);
+    return { success: true, opacity };
+  });
+
+  ipcMain.handle('overlay-toggle-compact', async () => toggleOverlayCompact(appState));
+
+  ipcMain.handle('overlay-set-compact', async (_event, payload) => {
+    return setOverlayCompact(appState, !!payload?.compact);
   });
 }
 
