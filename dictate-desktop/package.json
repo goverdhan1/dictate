@@ -1,6 +1,6 @@
 {
   "name": "dictate-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for virtual meetings",
   "main": "electron/main.js",
   "author": "Dictate",
@@ -85,9 +85,11 @@
     },
     "mac": {
       "target": [
-        "dmg"
+        "zip"
       ],
-      "category": "public.app-category.productivity"
+      "identity": null,
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-mac.${ext}"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
