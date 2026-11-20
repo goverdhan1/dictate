@@ -33,10 +33,16 @@
         gap: 8px;
         padding: 8px 10px;
         background: rgba(0,0,0,.35);
-        -webkit-app-region: drag;
+        /* Custom drag + dblclick maximize (native drag region blocks dblclick). */
+        -webkit-app-region: no-drag;
         cursor: move;
         flex-shrink: 0;
         z-index: 2;
+        user-select: none;
+        touch-action: none;
+      }
+      .header.dragging {
+        cursor: grabbing;
       }
       .title {
         font-weight: 600;
@@ -208,29 +214,35 @@
         height: 100%;
         align-items: center;
         justify-content: center;
-        -webkit-app-region: drag;
-        cursor: pointer;
-        background: radial-gradient(circle at 30% 25%, #3b82f6, #1e3a8a 70%);
+        -webkit-app-region: no-drag;
+        cursor: grab;
+        background: transparent;
+      }
+      .compact-icon:active,
+      .compact-icon.dragging {
+        cursor: grabbing;
       }
       .compact-icon-glyph {
-        width: 34px;
-        height: 34px;
-        border-radius: 10px;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 16px;
+        font-size: 18px;
         font-weight: 700;
         letter-spacing: -0.02em;
         color: #fff;
-        background: rgba(255,255,255,.14);
+        background: radial-gradient(circle at 30% 25%, #3b82f6, #1e3a8a 72%);
         border: 1px solid rgba(255,255,255,.28);
         box-shadow: 0 4px 14px rgba(0,0,0,.35);
         -webkit-app-region: no-drag;
-        cursor: pointer;
+        cursor: inherit;
+        touch-action: none;
+        user-select: none;
       }
       .compact-icon-glyph:hover {
-        background: rgba(255,255,255,.22);
+        filter: brightness(1.08);
       }
       body.compact .header,
       body.compact .status,
@@ -238,12 +250,11 @@
       body.compact .resize-handle {
         display: none !important;
       }
-      body.compact .panel {
-        background: transparent;
-      }
+      html.compact,
+      html.compact body,
       body.compact,
-      body.compact html {
-        background: transparent;
+      body.compact .panel {
+        background: transparent !important;
       }
       body.compact .compact-icon {
         display: flex;

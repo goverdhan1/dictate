@@ -78,7 +78,8 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "zip",
+        "portable"
       ],
       "signAndEditExecutable": false
     },
@@ -88,9 +89,8 @@
       ],
       "category": "public.app-category.productivity"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "protocols": [
       {

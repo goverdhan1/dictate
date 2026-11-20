@@ -6,8 +6,10 @@ const contextBtn = document.getElementById('context-btn');
 const dictateMenuBtn = document.getElementById('dictate-menu-btn');
 const compactBtn = document.getElementById('compact-btn');
 const expandBtn = document.getElementById('expand-btn');
+const compactIcon = document.getElementById('compact-icon');
 const opacitySlider = document.getElementById('opacity-slider');
 const resizeHandle = document.getElementById('resize-handle');
+const headerEl = document.querySelector('.header');
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('status-text');
 const joinBtn = document.getElementById('join-btn');
@@ -172,6 +174,7 @@ function applyCaptionMode(mode) {
 
 function applyCompactUi(compact) {
   isCompact = !!compact;
+  document.documentElement.classList.toggle('compact', isCompact);
   document.body.classList.toggle('compact', isCompact);
   if (compactBtn) {
     compactBtn.textContent = isCompact ? '□' : '–';
@@ -370,6 +373,121 @@ function setupResize() {
   resizeHandle.addEventListener('pointercancel', endResize);
 }
 
+function isHeaderInteractiveTarget(target) {
+  return !!target?.closest?.(
+    'button, select, input, label, a, .opacity-control, .header-actions, #dictate-menu-btn, #agent-select'
+  );
+}
+
+function setupHeaderControls() {
+  if (!headerEl || !window.dictateOverlay?.moveBy) return;
+
+  let dragPointerId = null;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let dragMoved = false;
+  const dragThreshold = 4;
+
+  headerEl.title = 'Drag to move · double-click to maximize';
+
+  headerEl.addEventListener('pointerdown', (e) => {
+    if (isCompact || e.button !== 0 || isHeaderInteractiveTarget(e.target)) return;
+    e.preventDefault();
+    dragPointerId = e.pointerId;
+    dragLastX = e.screenX;
+    dragLastY = e.screenY;
+    dragMoved = false;
+    headerEl.classList.add('dragging');
+    try { headerEl.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  });
+
+  headerEl.addEventListener('pointermove', (e) => {
+    if (dragPointerId !== e.pointerId) return;
+    const dx = e.screenX - dragLastX;
+    const dy = e.screenY - dragLastY;
+    if (!dx && !dy) return;
+    if (!dragMoved && Math.hypot(dx, dy) < dragThreshold) return;
+    dragMoved = true;
+    window.dictateOverlay.moveBy(dx, dy);
+    dragLastX = e.screenX;
+    dragLastY = e.screenY;
+  });
+
+  const endHeaderDrag = (e) => {
+    if (dragPointerId !== e.pointerId) return;
+    dragPointerId = null;
+    dragMoved = false;
+    headerEl.classList.remove('dragging');
+    try { headerEl.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  headerEl.addEventListener('pointerup', endHeaderDrag);
+  headerEl.addEventListener('pointercancel', endHeaderDrag);
+
+  headerEl.addEventListener('dblclick', (e) => {
+    if (isCompact || isHeaderInteractiveTarget(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.dictateOverlay.toggleMaximize?.().catch(() => {});
+  });
+}
+
+function setupCompactDrag() {
+  const dragTarget = compactIcon || expandBtn;
+  if (!dragTarget || !window.dictateOverlay?.moveBy) return;
+
+  let dragPointerId = null;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let dragMoved = false;
+  const dragThreshold = 4;
+
+  const onPointerDown = (e) => {
+    if (!isCompact || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragPointerId = e.pointerId;
+    dragLastX = e.screenX;
+    dragLastY = e.screenY;
+    dragMoved = false;
+    compactIcon?.classList.add('dragging');
+    try { dragTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const onPointerMove = (e) => {
+    if (dragPointerId !== e.pointerId) return;
+    const dx = e.screenX - dragLastX;
+    const dy = e.screenY - dragLastY;
+    if (!dx && !dy) return;
+    if (!dragMoved && Math.hypot(dx, dy) < dragThreshold) return;
+    dragMoved = true;
+    window.dictateOverlay.moveBy(dx, dy);
+    dragLastX = e.screenX;
+    dragLastY = e.screenY;
+  };
+
+  const onPointerUp = (e) => {
+    if (dragPointerId !== e.pointerId) return;
+    const wasDrag = dragMoved;
+    dragPointerId = null;
+    dragMoved = false;
+    compactIcon?.classList.remove('dragging');
+    try { dragTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    // Tap without drag restores the window.
+    if (!wasDrag) handleToggleCompact().catch(() => {});
+  };
+
+  dragTarget.addEventListener('pointerdown', onPointerDown);
+  dragTarget.addEventListener('pointermove', onPointerMove);
+  dragTarget.addEventListener('pointerup', onPointerUp);
+  dragTarget.addEventListener('pointercancel', onPointerUp);
+  // Prevent the old click handler from double-firing restore.
+  expandBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
 window.addEventListener('error', (event) => {
   const msg = event?.error?.message || event?.message || 'Unknown overlay error';
   console.error('[Dictate overlay]', event?.error || event);
@@ -430,14 +548,14 @@ if (window.dictateOverlay) {
     }
   });
   setupResize();
+  setupHeaderControls();
+  setupCompactDrag();
   compactBtn?.addEventListener('click', () => {
     handleToggleCompact().catch(() => {});
   });
-  expandBtn?.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleToggleCompact().catch(() => {});
-  });
+  if (expandBtn) {
+    expandBtn.title = 'Drag to move · click to restore';
+  }
   opacitySlider?.addEventListener('mousedown', (e) => e.stopPropagation());
   opacitySlider?.addEventListener('pointerdown', (e) => e.stopPropagation());
   opacitySlider?.addEventListener('input', () => {

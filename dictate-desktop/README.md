@@ -73,9 +73,15 @@ On macOS, grant **Accessibility** to Dictate (or to Terminal / Electron when run
 
 **Undetectable Mode is on by default.** Restart Dictate Desktop after updating, then confirm with a short Teams screen share of the desktop — the overlay should not appear for attendees.
 
-## Build installers
+## Build portable packages
 
 ```bash
-npm run dist:win   # NSIS installer in dist/
+npm run dist:win   # Zip folder + portable .exe in dist/
 npm run dist:mac   # DMG (macOS + signing for distribution)
+npm run pack       # Unpacked folder only: dist/win-unpacked/
 ```
+
+Windows outputs (no installer):
+
+- `Dictate-<version>-win.zip` — unzip and run `Dictate.exe`
+- `Dictate-<version>-portable.exe` — single-file portable app

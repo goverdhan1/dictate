@@ -610,6 +610,34 @@ function setupIpc(appState, bridge, desktopWatcher = null, transcriptStore = nul
     return { success: true };
   });
 
+  ipcMain.handle('overlay-move-by', (event, { dx, dy }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return { success: false };
+    if (win.isMaximized()) return { success: false, maximized: true };
+    const [x, y] = win.getPosition();
+    win.setPosition(
+      Math.round(x + Number(dx || 0)),
+      Math.round(y + Number(dy || 0))
+    );
+    return { success: true };
+  });
+
+  ipcMain.handle('overlay-toggle-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return { success: false };
+    if (isOverlayCompact(appState)) return { success: false, compact: true };
+    try {
+      if (win.isMaximized()) {
+        win.unmaximize();
+        return { success: true, maximized: false };
+      }
+      win.maximize();
+      return { success: true, maximized: true };
+    } catch (e) {
+      return { success: false, error: e?.message || String(e) };
+    }
+  });
+
   ipcMain.handle('overlay-get-window-chrome', async () => ({
     success: true,
     compact: isOverlayCompact(appState),

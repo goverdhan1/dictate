@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld('dictateOverlay', {
   resizeBy(dx, dy) {
     return ipcRenderer.invoke('overlay-resize-by', { dx, dy });
   },
+  moveBy(dx, dy) {
+    return ipcRenderer.invoke('overlay-move-by', { dx, dy });
+  },
+  toggleMaximize() {
+    return ipcRenderer.invoke('overlay-toggle-maximize');
+  },
   getWindowChrome() {
     return ipcRenderer.invoke('overlay-get-window-chrome');
   },

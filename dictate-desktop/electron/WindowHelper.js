@@ -48,7 +48,7 @@ function isOverlayCompact(appState) {
   return !!appState?.overlayCompact;
 }
 
-function setOverlayCompact(appState, compact) {
+async function setOverlayCompact(appState, compact) {
   const win = appState?.overlayWindow;
   if (!win || win.isDestroyed()) return { success: false, compact: isOverlayCompact(appState) };
   const next = !!compact;
@@ -56,11 +56,35 @@ function setOverlayCompact(appState, compact) {
     return { success: true, compact: next };
   }
 
+  // Switch renderer chrome first so the full UI is not briefly squashed into the icon size.
+  appState.overlayCompact = next;
+  notifyOverlay(appState, { compact: next });
+  try {
+    await win.webContents.executeJavaScript(
+      `(() => {
+        document.documentElement.classList.toggle('compact', ${next});
+        document.body.classList.toggle('compact', ${next});
+        const handle = document.getElementById('resize-handle');
+        if (handle) handle.hidden = ${next};
+      })()`,
+      true
+    );
+  } catch {
+    /* ignore */
+  }
+
   if (next) {
     appState.overlayRestoredBounds = win.getBounds();
-    appState.overlayCompact = true;
     try {
       win.setMinimumSize(OVERLAY_COMPACT_SIZE, OVERLAY_COMPACT_SIZE);
+      win.setResizable(false);
+      win.setHasShadow(false);
+      win.setBackgroundColor('#00000000');
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (appState.agentView) win.removeBrowserView(appState.agentView);
     } catch {
       /* ignore */
     }
@@ -73,10 +97,12 @@ function setOverlayCompact(appState, compact) {
     });
   } else {
     const restored = appState.overlayRestoredBounds;
-    appState.overlayCompact = false;
     appState.overlayRestoredBounds = null;
     try {
       win.setMinimumSize(OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT);
+      win.setResizable(true);
+      win.setHasShadow(true);
+      win.setBackgroundColor('#00000000');
     } catch {
       /* ignore */
     }
@@ -96,14 +122,18 @@ function setOverlayCompact(appState, compact) {
         y: 24
       });
     }
+    try {
+      if (appState.agentView) win.setBrowserView(appState.agentView);
+    } catch {
+      /* ignore */
+    }
   }
 
   layoutAgentView(appState);
-  notifyOverlay(appState, { compact: next });
   return { success: true, compact: next };
 }
 
-function toggleOverlayCompact(appState) {
+async function toggleOverlayCompact(appState) {
   return setOverlayCompact(appState, !isOverlayCompact(appState));
 }
 
@@ -343,8 +373,9 @@ function createOverlayWindow(appState, onChatGPTReady) {
     x: width - 740,
     y: 24,
     frame: false,
-    transparent: false,
-    backgroundColor: '#141418',
+    // Transparent so compact mode can show only the floating icon (no solid square).
+    transparent: true,
+    backgroundColor: '#00000000',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
