@@ -76,9 +76,10 @@ On macOS, grant **Accessibility** to Dictate (or to Terminal / Electron when run
 ## Build portable packages
 
 ```bash
-npm run dist:win   # Zip folder + portable .exe in dist/ (Windows host)
-npm run dist:mac   # Portable .zip with Dictate.app (macOS host or GitHub Actions)
-npm run pack       # Unpacked folder only: dist/win-unpacked/
+npm run dist:win     # Zip folder + portable .exe in dist/ (Windows host)
+npm run dist:mac     # Portable .zip with Dictate.app (macOS host or GitHub Actions)
+npm run dist:linux   # AppImage + .deb (Linux host or GitHub Actions)
+npm run pack         # Unpacked folder only: dist/win-unpacked/
 ```
 
 Windows outputs (no installer):
@@ -90,3 +91,8 @@ macOS outputs (unsigned portable zip; build on macOS / CI):
 
 - `Dictate-<version>-mac.zip` — unzip and open `Dictate.app`
 - First launch may need right-click → **Open**, or `xattr -cr Dictate.app`
+
+Linux outputs (build on Linux / CI):
+
+- `Dictate-<version>-linux.AppImage` — portable; `chmod +x` then run
+- `Dictate-<version>-linux.deb` — installable on Debian/Ubuntu (`sudo dpkg -i …`)

@@ -1,0 +1,65 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dictate-desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dictate-desktop/package-lock.json
+
+      - name: Install dependencies
+        # Skip package postinstall (ensure-electron) so Electron's own installer owns dist/.
+        run: npm ci --ignore-scripts
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Verify Electron binary
+        run: node -e "console.log(require('electron'))"
+
+      - name: Build Linux AppImage and deb
+        run: npm run dist:linux
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+            echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Linux packages to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Dictate Desktop ${{ steps.tag.outputs.name }}
+          draft: false
+          prerelease: false
+          files: |
+            dictate-desktop/dist/Dictate-*-linux.AppImage
+            dictate-desktop/dist/Dictate-*-linux.deb
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

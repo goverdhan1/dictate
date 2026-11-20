@@ -1,6 +1,6 @@
 {
   "name": "dictate-desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Dictate desktop shell with capture-excluded ChatGPT overlay for virtual meetings",
   "main": "electron/main.js",
   "author": "Dictate",
@@ -12,7 +12,8 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac"
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
@@ -90,6 +91,15 @@
       "identity": null,
       "category": "public.app-category.productivity",
       "artifactName": "${productName}-${version}-mac.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "maintainer": "Dictate <dictate@localhost>",
+      "artifactName": "${productName}-${version}-linux.${ext}"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
